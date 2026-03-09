@@ -26,7 +26,7 @@ The `has_objective_c = True` flag tells Buck this module contains Objective-C co
 
 ### Module Structure
 
-```
+```text
 Libraries/ObjcAndSwift/
 ├── BUCK
 ├── Sources/
@@ -203,7 +203,7 @@ MySwiftClassInMixedModule *swiftInstance = [[MySwiftClassInMixedModule alloc] in
 
 Swift cannot directly call C++ code. The bridge must go through Objective-C++:
 
-```
+```text
 Swift → Objective-C wrapper → Objective-C++ (.mm) → C++
 ```
 
@@ -238,7 +238,7 @@ first_party_library(
 ```
 
 **Language interaction flow:**
-```
+```text
 Swift files ←→ Objective-C files (.h/.m)
                        ↕
                 Objective-C++ files (.mm)
