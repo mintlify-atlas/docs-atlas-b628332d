@@ -1,0 +1,91 @@
+{
+  "projectType": "general",
+  "projectName": "BuckSample",
+  "projectDescription": "An example iOS app demonstrating how to build with Buck build system by Airbnb.",
+  "theme": "aspen",
+  "primaryColor": "#848484",
+  "lightColor": "#151515",
+  "darkColor": "#fcfcfc",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "installation",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "core-concepts/buck-basics",
+          "core-concepts/build-targets",
+          "core-concepts/dependencies",
+          "core-concepts/configuration"
+        ]
+      },
+      {
+        "group": "Building",
+        "pages": [
+          "building/building-app",
+          "building/testing",
+          "building/xcode-project",
+          "building/buck-local"
+        ]
+      },
+      {
+        "group": "Examples",
+        "pages": [
+          "examples/library-modules",
+          "examples/cocoapods",
+          "examples/mixed-language",
+          "examples/extensions"
+        ]
+      },
+      {
+        "group": "Advanced",
+        "pages": [
+          "advanced/code-coverage",
+          "advanced/ci-cd",
+          "advanced/debugging",
+          "advanced/build-configurations"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/makefile-commands",
+          "reference/buck-files",
+          "reference/build-configs"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Buck build system integration for iOS",
+    "Mixed Objective-C and Swift support",
+    "CocoaPods and Carthage dependency management",
+    "Buck Local for faster Xcode builds",
+    "Watch app and app extensions support",
+    "Code coverage and CI/CD integration",
+    "Dependency graph visualization",
+    "Multi-module architecture examples"
+  ],
+  "publicApiSurface": [
+    "make install_buck",
+    "make build",
+    "make test",
+    "make project",
+    "make buck_local_project",
+    "make targets",
+    "buck build //App:ExampleApp",
+    "buck test //App:ExampleAppCITests",
+    "buck query \"deps(//App:ExampleAppBinary)\"",
+    "//Libraries/ASwiftModule:ASwiftModule",
+    "//Libraries/SwiftWithAssets:SwiftWithAssets",
+    "//Libraries/ObjcAndSwift:ObjcAndSwift",
+    "//Pods:PromiseKit",
+    "//Pods:CryptoSwift"
+  ]
+}
