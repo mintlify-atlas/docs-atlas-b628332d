@@ -1,0 +1,439 @@
+---
+title: 'Debugging in Xcode'
+description: 'Debug Buck-built iOS apps in Xcode with proper breakpoint and source path support'
+icon: 'bug'
+---
+
+## Overview
+
+Debugging Buck-built applications in Xcode requires special configuration to ensure breakpoints work correctly and source code is properly mapped. BuckSample includes BuckLocal integration that handles debug source path remapping automatically.
+
+## Generating Xcode Projects
+
+Buck can generate Xcode projects that allow you to build and debug your app within Xcode.
+
+### Standard Project Generation
+
+Generate a standard Xcode workspace:
+
+```bash
+make project
+```
+
+This command:
+
+```makefile Makefile
+project: clean
+	$(BUCK) project //App:workspace
+	open App/ExampleApp-BUCK.xcworkspace
+```
+
+<Steps>
+
+<Step title="Clean Previous Projects">
+
+Removes any existing Xcode projects and workspaces to ensure a fresh generation.
+
+</Step>
+
+<Step title="Generate Workspace">
+
+Runs `buck project //App:workspace` to generate an Xcode workspace with all targets.
+
+</Step>
+
+<Step title="Open in Xcode">
+
+Automatically opens the generated workspace in Xcode.
+
+</Step>
+
+</Steps>
+
+### Buck Local Project
+
+For advanced debugging with better source path support, use Buck Local:
+
+```bash
+make buck_local_project
+```
+
+This command:
+
+```makefile Makefile
+buck_local_project: clean
+	bundle exec rake buck_local:generate_project buck_binary_path=$(BUCK) workspace_target='//App:workspace-buck-local' top_level_lib_target='//App:ExampleAppLibrary' xcworkspace='App/ExampleAppBuckLocal-BUCK.xcworkspace'
+	open App/ExampleAppBuckLocal-BUCK.xcworkspace
+```
+
+<Note>
+Buck Local provides enhanced debugging capabilities, including automatic source path remapping for libraries fetched from HTTP cache.
+</Note>
+
+## Debug Source Path Remapping
+
+### The Problem
+
+When debugging Buck-built binaries, especially those fetched from an HTTP cache or built on CI machines, LLDB (Xcode's debugger) may not be able to find the source files because:
+
+1. The binaries contain relative paths like `./`
+2. Libraries from HTTP cache may have absolute paths from the CI machine
+3. LLDB needs absolute local paths to map breakpoints to addresses
+
+### The Solution
+
+BuckSample includes a script that creates a UUID.plist file inside the dSYM bundle with source path remapping configuration.
+
+### How It Works
+
+The `BuckLocal/remap_debug_source_path.sh` script:
+
+```bash BuckLocal/remap_debug_source_path.sh
+#!/bin/bash
+#
+# This script creates a UUID.plist file inside the dSym bundle, and uses its `DBGSourcePathRemapping` config
+# to remap remote pathes of apps repo to its local path.
+#
+# This is essential to enable debugging libraries fetched from Http cache built by a CI machine. Without this
+# mapping, the breakpoints set locally won't work because LLDB won't be able to map those breakpoints to an address.
+#
+# This is still needed even if no Http cache is used, because the binaries compiled by Buck has relative path `./` in them,
+# and LLDB needs absolute path to get breakpoints to work. However, if only `./` needs to be mapped, we may also use
+# the LLDB config `target.source-map` to get it working, to avoid the creation of a DSYM file.
+#
+# We store all possible remote paths in a separate RemoteSourcePathList.txt file, so it's easier to maintain
+# the list without touching the logic of generating the plist file.
+#
+DSYM_BUNDLE_PATH=$DWARF_DSYM_FOLDER_PATH/$DWARF_DSYM_FILE_NAME
+
+# Wait for 1 second to make sure the DSYM bundle had been generated.
+sleep 1
+# Use dwarfdump to get the UUID of the DWARF file in the dSym bundle.
+# The filename of the pList must match this UUID for the source path remapping to work.
+UUID=`dwarfdump --uuid $DSYM_BUNDLE_PATH | cut -d ' ' -f 2`
+# This is the path to the UUID.plist file we're about to create.
+DSYM_PLIST_PATH=$DSYM_BUNDLE_PATH/Contents/Resources/$UUID.plist
+
+# The following are 3 template files we use to construct the UUID.plist
+DSYM_PLIST_PREFIX="$REPO_ROOT/BuckLocal/SourcePathRemapping_Prefix"
+DSYM_PLIST_POSTFIX="$REPO_ROOT/BuckLocal/SourcePathRemapping_Postfix"
+REMOTE_PATH_LIST="$REPO_ROOT/BuckLocal/RemoteSourcePathList.txt"
+
+# Create the plist file
+touch $DSYM_PLIST_PATH
+# For the prefix template, we simply copy its content over.
+cat $DSYM_PLIST_PREFIX > $DSYM_PLIST_PATH
+# For the main mapping, we use awk to print each remote path as a Key in the plist, and the actual local repo path as the Value, so that we can map all remote pathes to local repo root.
+cat $REMOTE_PATH_LIST | awk -v repo_root=$REPO_ROOT '{print "<key>"$1"</key><string>"repo_root"</string>"}' >> $DSYM_PLIST_PATH
+# For the postfix template, we also copy its content over to the plist file without modification.
+cat $DSYM_PLIST_POSTFIX >> $DSYM_PLIST_PATH
+```
+
+<Steps>
+
+<Step title="Extract UUID">
+
+Uses `dwarfdump` to extract the UUID from the dSYM bundle. The plist filename must match this UUID for LLDB to recognize it.
+
+</Step>
+
+<Step title="Build Plist File">
+
+Constructs a plist file with `DBGSourcePathRemapping` configuration using three template files:
+
+- `SourcePathRemapping_Prefix`: XML header and plist structure
+- `RemoteSourcePathList.txt`: List of remote paths to remap
+- `SourcePathRemapping_Postfix`: Closing XML tags
+
+</Step>
+
+<Step title="Map Paths">
+
+For each remote path in `RemoteSourcePathList.txt`, creates a mapping to the local repository root:
+
+```xml
+<key>./</key><string>/Users/you/path/to/repo</string>
+```
+
+This tells LLDB: "When you see `./` in debug info, replace it with the local repo path."
+
+</Step>
+
+</Steps>
+
+### Remote Source Path List
+
+The `BuckLocal/RemoteSourcePathList.txt` file contains paths that need remapping:
+
+```txt BuckLocal/RemoteSourcePathList.txt
+.
+```
+
+Currently it only remaps the relative path `./`, but you can add additional paths if you're using HTTP cache with binaries built on CI machines:
+
+```txt
+.
+/var/ci/workspace/app
+/Users/ci-user/builds/app
+```
+
+<Warning>
+If breakpoints aren't working, check that the remote paths in `RemoteSourcePathList.txt` match the paths embedded in your cached binaries. Use `dwarfdump --debug-info <binary>` to inspect source paths in the debug info.
+</Warning>
+
+### Plist Structure
+
+The generated UUID.plist has this structure:
+
+```xml SourcePathRemapping_Prefix
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>DBGVersion</key>
+	<string>3</string>
+	<key>DBGSourcePathRemapping</key>
+	<dict>
+```
+
+Followed by the path mappings, then:
+
+```xml SourcePathRemapping_Postfix
+</dict>
+</dict>
+</plist>
+```
+
+## Using Breakpoints
+
+### Setting Breakpoints
+
+<Steps>
+
+<Step title="Open Source File">
+
+In Xcode, open the source file where you want to set a breakpoint.
+
+</Step>
+
+<Step title="Click Line Number">
+
+Click the line number gutter to set a breakpoint. A blue marker will appear.
+
+</Step>
+
+<Step title="Run with Debugger">
+
+Run your app from Xcode or use:
+
+```bash
+make debug
+```
+
+Which runs:
+
+```makefile
+debug:
+	$(BUCK) install //App:ExampleApp --run --simulator-name 'iPhone 8'
+```
+
+</Step>
+
+<Step title="Debug Session">
+
+When execution hits your breakpoint:
+- Execution pauses
+- Variables panel shows current values
+- Console shows LLDB prompt
+- Step through code using Xcode's debug controls
+
+</Step>
+
+</Steps>
+
+### Conditional Breakpoints
+
+Right-click a breakpoint to edit it and add conditions:
+
+```swift
+// Set breakpoint on this line
+let result = processData(item)
+
+// Add condition: item.id == "123"
+```
+
+The breakpoint will only trigger when the condition is true.
+
+### Symbolic Breakpoints
+
+Set breakpoints on function names without opening the file:
+
+1. Debug → Breakpoints → Create Symbolic Breakpoint
+2. Enter function name (e.g., `viewDidLoad`)
+3. Optionally specify module
+
+## Debugging Commands
+
+### Debug in Simulator
+
+Build and launch with debugger attached:
+
+```bash
+make debug
+```
+
+For Release configuration:
+
+```bash
+make debug_release
+```
+
+### LLDB Commands
+
+Useful LLDB commands while debugging:
+
+<CodeGroup>
+
+```lldb Print Variables
+(lldb) po variableName
+(lldb) p variableName
+(lldb) frame variable
+```
+
+```lldb View Source Paths
+(lldb) image lookup -va $pc
+(lldb) target modules dump symtab
+```
+
+```lldb Source Mapping
+(lldb) settings show target.source-map
+(lldb) settings set target.source-map /remote/path /local/path
+```
+
+```lldb Breakpoints
+(lldb) breakpoint list
+(lldb) breakpoint delete <number>
+(lldb) breakpoint set -n functionName
+```
+
+</CodeGroup>
+
+## Troubleshooting
+
+### Breakpoints Not Hitting
+
+<Steps>
+
+<Step title="Verify Debug Symbols">
+
+Ensure your build includes debug symbols. Check `.buckconfig`:
+
+```ini
+[cxx]
+  cflags = -g -fmodules -fobjc-arc -D BUCK -w
+
+[custom]
+  config = debug
+  config_swift_compiler_flags = -DDEBUG -enable-testing -g
+```
+
+The `-g` flag enables debug symbol generation.
+
+</Step>
+
+<Step title="Check Source Path Remapping">
+
+Verify the UUID.plist exists:
+
+```bash
+find buck-out -name "*.dSYM" -exec ls -la {}/Contents/Resources/ \;
+```
+
+Look for a file named `<UUID>.plist`.
+
+</Step>
+
+<Step title="Inspect Debug Info">
+
+Use dwarfdump to see what paths are embedded:
+
+```bash
+dwarfdump --debug-info buck-out/gen/path/to/binary | grep DW_AT_name | head -20
+```
+
+</Step>
+
+<Step title="Manual Source Mapping">
+
+If automatic remapping doesn't work, manually configure LLDB:
+
+```bash
+# In ~/.lldbinit or at LLDB prompt
+settings set target.source-map ./ /absolute/path/to/repo
+```
+
+</Step>
+
+</Steps>
+
+### "Source Not Available"
+
+If Xcode shows "Source Not Available":
+
+1. The source path mapping is incorrect
+2. Debug symbols are stripped
+3. The source file has moved or been deleted
+
+Verify the file exists at the path LLDB is looking for.
+
+### Debugger Slow or Unresponsive
+
+1. Reduce the number of breakpoints
+2. Use conditional breakpoints to reduce false hits
+3. Disable "All Exceptions" breakpoint if enabled
+4. Clean and rebuild the project
+
+## Best Practices
+
+<Steps>
+
+<Step title="Use Buck Local for Development">
+
+When actively debugging, use `make buck_local_project` for better source path support.
+
+</Step>
+
+<Step title="Keep Debug Symbols">
+
+Always build Debug configuration during development:
+
+```bash
+make build  # Uses Debug config by default
+```
+
+Only use Release for performance testing:
+
+```bash
+make build_release
+```
+
+</Step>
+
+<Step title="Update Remote Paths">
+
+If using HTTP cache with CI-built binaries, maintain the `RemoteSourcePathList.txt` file with all CI workspace paths.
+
+</Step>
+
+<Step title="Leverage LLDB Scripts">
+
+Create custom LLDB commands in `~/.lldbinit` for frequently used debugging tasks.
+
+</Step>
+
+</Steps>
+
+## Related Topics
+
+- [Build Configurations](/advanced/build-configurations) - Configure Debug vs Release builds
+- [CI/CD Integration](/advanced/ci-cd) - Debugging CI build issues

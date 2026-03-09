@@ -1,0 +1,344 @@
+---
+title: 'Build Targets'
+description: 'Understanding Buck targets and target patterns'
+icon: 'bullseye'
+---
+
+## Target Naming Convention
+
+Buck targets follow a specific naming pattern that identifies their location and name:
+
+```
+//cell/path/to/package:target_name
+```
+
+<Tabs>
+  <Tab title="Components">
+    - `//` - Root of the repository
+    - `cell/path/to/package` - Path to the directory containing the BUCK file
+    - `:` - Separator between package path and target name
+    - `target_name` - The name defined in the BUCK file
+  </Tab>
+  <Tab title="Examples">
+    - `//App:ExampleApp` - The ExampleApp target in App/BUCK
+    - `//Libraries/ASwiftModule:ASwiftModule` - The ASwiftModule target
+    - `//Pods:CryptoSwift` - A CocoaPods dependency
+    - `:ExampleAppAssets` - A target in the same BUCK file (relative reference)
+  </Tab>
+</Tabs>
+
+## Listing Targets
+
+You can list all targets in a package using the `buck targets` command:
+
+```bash
+buck targets //App:
+```
+
+<Accordion title="Example Output">
+```
+//App:ExampleApp
+//App:ExampleAppBinary
+//App:ExampleAppLibrary
+//App:ExampleAppAssets
+//App:ExampleAppCITests
+//App:ExampleWatchApp
+//App:ExampleMessageExtension
+//App:ExampleWidgetExtension
+```
+</Accordion>
+
+## Target Types in BuckSample
+
+### Library Targets
+
+Library targets compile source code into reusable modules:
+
+```python title="App/BUCK (lines 58-86)"
+apple_library(
+    name = "ExampleAppLibrary",
+    visibility = [
+        "//App:",
+        "//App/...",
+    ],
+    configs = library_configs(),
+    swift_version = "4.0",
+    srcs = [
+        "ViewController.swift",
+        "AppDelegate.swift",
+        "LocalizationHelper.swift",
+    ],
+    tests = app_tests,
+    deps = [
+        "//Pods:CryptoSwift",
+        "//Pods:PromiseKit",
+        ":ExampleAppAssets",
+        "//App/Resources:ExampleAppStringResources",
+        "//App/Resources:StoryboardResources",
+    ]
+    + first_party_library_dependencies
+    + prebuilt_dynamic_frameworks
+    + build_phase_scripts,
+)
+```
+
+<Note>
+Library targets can have associated test targets via the `tests` parameter.
+</Note>
+
+### Binary Targets
+
+Binary targets create executable code:
+
+```python title="App/BUCK (lines 88-104)"
+buck_local_binary(
+    name = "ExampleAppBinary",
+    visibility = [
+        "//App:",
+        "//App/...",
+    ],
+    configs = app_binary_configs("ExampleApp"),
+    swift_version = "4.0",
+    srcs = [
+        "BuckSupportFiles/Dummy.swift",
+    ],
+    native_xcode_deps = [":ExampleAppLibrary"],
+    buck_local_deps=[
+        "//BuckLocal:BuckLocal",
+        "//BuckLocal:RemapDBGSourcePath",
+    ],
+)
+```
+
+### Bundle Targets
+
+Bundle targets package binaries and resources into distributable applications:
+
+```python title="App/BUCK (lines 149-168)"
+buck_local_bundle(
+    name = "ExampleApp",
+    visibility = [
+        "//App:",
+    ],
+    extension = "app",
+    binary = ":ExampleAppBinary",
+    product_name = "ExampleApp",
+    info_plist = "Info.plist",
+    info_plist_substitutions = info_plist_substitutions("ExampleApp"),
+    native_xcode_deps=prebuilt_frameworks + [
+        # For "#watch", https://buckbuild.com/rule/apple_bundle.html#deps
+        ":ExampleWatchApp#watch",
+        ":ExampleMessageExtension",
+        ":ExampleWidgetExtension",
+    ]
+    + prebuilt_frameworks
+    + prebuilt_dynamic_frameworks,
+    buck_local_deps=prebuilt_frameworks,
+)
+```
+
+<Info>
+The `#watch` suffix is a Buck flavor that modifies how the target is built for WatchOS.
+</Info>
+
+### Asset Catalog Targets
+
+Asset catalogs bundle app icons and images:
+
+```python title="App/BUCK (lines 6-11)"
+buck_local_apple_asset_catalog(
+    name = "ExampleAppAssets",
+    visibility = ["//App:"],
+    app_icon = "AppIcon",
+    dirs = ["Assets.xcassets"],
+)
+```
+
+### Resource Targets
+
+Resource targets include files like storyboards, strings, and other assets:
+
+```python title="App/BUCK (lines 251-255)"
+apple_resource(
+    name = "ExampleWatchAppResources",
+    dirs = [],
+    files = glob(["WatchApplication/**/*.storyboard"])
+)
+```
+
+### Test Targets
+
+Test targets define unit and UI tests:
+
+```python title="App/BUCK (lines 349-359)"
+apple_test_lib(
+    name = "UnitTests",
+    srcs = glob([
+        "UnitTests/*.swift",
+    ]),
+    deps = [
+        ":ExampleAppLibrary",
+    ]
+    + prebuilt_frameworks
+    + prebuilt_dynamic_frameworks,
+)
+```
+
+<Accordion title="UI Test Configuration">
+UI tests require special configuration with a test host app:
+
+```python title="App/BUCK (lines 374-395)"
+apple_test_lib(
+    name = "XCUITests",
+    destination_specifier = {
+        "name": "iPhone 8",
+    },
+    run_test_separately = True,
+    test_host_app = ":XCUITestsHostApp",
+    srcs = glob([
+        "XCUITests/*.swift",
+    ]),
+    is_ui_test = True,
+    ui_test_target_app = ":ExampleApp",
+    labels = ['ui'],
+    frameworks = [
+        "$PLATFORM_DIR/Developer/Library/Frameworks/XCTest.framework",
+        "$SDKROOT/System/Library/Frameworks/Foundation.framework",
+        "$SDKROOT/System/Library/Frameworks/UIKit.framework",
+    ],
+)
+```
+</Accordion>
+
+## Target Patterns
+
+### Wildcard Patterns
+
+You can use wildcards to match multiple targets:
+
+- `//App:` - All targets in the App package
+- `//App/...` - All targets in App and all subpackages
+- `//Libraries/...` - All targets in all Libraries subpackages
+
+### Relative References
+
+Within a BUCK file, you can reference targets using shorthand:
+
+```python
+deps = [
+    ":ExampleAppAssets",  # Same package
+    "//App/Resources:StoryboardResources",  # Different package
+]
+```
+
+## App Extensions
+
+BuckSample includes several iOS app extensions:
+
+<Tabs>
+  <Tab title="Watch App">
+    ```python title="App/BUCK (lines 229-249)"
+    apple_bundle(
+        name = "ExampleWatchApp",
+        binary = ":ExampleWatchAppBinary",
+        visibility = [
+            "//App:",
+        ],
+        extension = "app",
+        info_plist = "WatchApplication/Info.plist",
+        info_plist_substitutions = {
+            "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+            "EXECUTABLE_NAME": "ExampleWatchApp",
+            "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.WatchApp"),
+            "WK_COMPANION_APP_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp"),
+            "PRODUCT_NAME": "ExampleWatchApp",
+        },
+        xcode_product_type = "com.apple.product-type.application.watchapp2",
+        deps = [
+            ":ExampleWatchAppExtension",
+            ":ExampleWatchAppResources",
+        ],
+    )
+    ```
+  </Tab>
+  <Tab title="iMessage Extension">
+    ```python title="App/BUCK (lines 286-302)"
+    apple_bundle(
+        name = "ExampleMessageExtension",
+        binary = ":ExampleMessageExtensionBinary",
+        extension = "appex",
+        info_plist = "MessageExtension/Info.plist",
+        info_plist_substitutions = {
+            "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+            "EXECUTABLE_NAME": "ExampleMessageExtension",
+            "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.MessageExtension"),
+            "PRODUCT_NAME": "ExampleMessageExtension",
+            "PRODUCT_MODULE_NAME": "ExampleMessageExtensionBinary",
+        },
+        deps = [
+            ":ExampleMessageExtensionResources",
+        ],
+        xcode_product_type = "com.apple.product-type.app-extension.messages",
+    )
+    ```
+  </Tab>
+  <Tab title="Widget Extension">
+    ```python title="App/BUCK (lines 330-344)"
+    apple_bundle(
+        name = "ExampleWidgetExtension",
+        binary = ":ExampleWidgetExtensionBinary",
+        extension = "appex",
+        info_plist = "WidgetExtension/Info.plist",
+        info_plist_substitutions = {
+            "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+            "EXECUTABLE_NAME": "ExampleWidgetExtension",
+            "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.WidgetExtension"),
+            "PRODUCT_NAME": "ExampleWidgetExtension",
+            "PRODUCT_MODULE_NAME": "ExampleWidgetExtensionBinary",
+            "PRODUCT_BUNDLE_PACKAGE_TYPE": "XPC!",
+        },
+        xcode_product_type = "com.apple.product-type.app-extension",
+    )
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+All extensions use special linker flags to properly set the entry point:
+
+```python
+linker_flags = [
+    "-e",
+    "_NSExtensionMain",
+    "-Xlinker",
+    "-rpath",
+    "-Xlinker",
+    "@executable_path/../../Frameworks",
+]
+```
+</Note>
+
+## Building Specific Targets
+
+To build a specific target:
+
+```bash
+buck build //App:ExampleApp
+```
+
+To build multiple targets:
+
+```bash
+buck build //App:ExampleApp //App:ExampleAppCITests
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Dependencies" icon="diagram-project" href="/core-concepts/dependencies">
+    Learn how targets depend on each other
+  </Card>
+  <Card title="Configuration" icon="gear" href="/core-concepts/configuration">
+    Understand Buck configuration options
+  </Card>
+</CardGroup>

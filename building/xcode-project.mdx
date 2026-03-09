@@ -1,0 +1,404 @@
+---
+title: Generating Xcode Projects
+description: Create Xcode workspaces from Buck build definitions for IDE development
+---
+
+While Buck excels at command-line builds, developers often prefer using Xcode for editing, debugging, and testing. BuckSample can generate Xcode projects directly from Buck build definitions.
+
+## Quick Start
+
+Generate and open an Xcode workspace:
+
+```bash
+make project
+```
+
+This creates `App/ExampleApp-BUCK.xcworkspace` and opens it in Xcode.
+
+## How It Works
+
+Buck's project generation analyzes your BUCK files and creates equivalent Xcode projects:
+
+1. **Reads BUCK files**: Parses build rules and dependencies
+2. **Creates .xcodeproj files**: Generates Xcode project files for each module
+3. **Creates workspace**: Combines projects into a workspace
+4. **Configures schemes**: Sets up build schemes with proper dependencies
+
+<Note>
+The generated projects use Buck for building, not Xcode's native build system. This ensures consistency between CLI and IDE builds.
+</Note>
+
+## Project Generation
+
+### Using Make
+
+The recommended way to generate projects:
+
+```bash
+make project
+```
+
+This command:
+1. Runs `make clean` to remove old projects
+2. Executes `tools/buck project //App:workspace`
+3. Opens the workspace in Xcode
+
+### Using Buck Directly
+
+Generate without opening Xcode:
+
+```bash
+tools/buck project //App:workspace
+```
+
+### Workspace Configuration
+
+The workspace is defined in `App/BUCK:135-147`:
+
+```python
+buck_local_workspace(
+    name = "workspace",
+    workspace_name = "ExampleApp",
+    src_target = ":ExampleApp",
+    ui_test_target = ":XCUITests",
+    native_xcode_scheme_actions={
+        "Build": {
+            "PRE_SCHEME_ACTIONS": ["echo 'Started'"],
+            "POST_SCHEME_ACTIONS": ["echo 'Finished'"],
+        },
+    },
+    action_config_names = {"profile": "Profile"},
+)
+```
+
+**Configuration options**:
+- `workspace_name`: Name of the generated workspace
+- `src_target`: Main app bundle target
+- `ui_test_target`: UI tests to include
+- `native_xcode_scheme_actions`: Pre/post build actions
+- `action_config_names`: Custom build configurations
+
+## Workspace Structure
+
+The generated workspace includes:
+
+```
+App/ExampleApp-BUCK.xcworkspace/
+├── contents.xcworkspacedata       # Workspace structure
+└── xcshareddata/
+    └── xcschemes/
+        ├── ExampleApp.xcscheme    # Main app scheme
+        └── XCUITests.xcscheme     # UI test scheme
+```
+
+### Included Projects
+
+The workspace contains multiple Xcode projects:
+- **ExampleApp.xcodeproj**: Main app target
+- **Library projects**: Each first-party library
+- **Pod projects**: CocoaPods dependencies
+- **Framework projects**: Prebuilt frameworks
+
+<Tip>
+Each project file is generated from its corresponding BUCK file, maintaining the dependency structure defined in Buck.
+</Tip>
+
+## Scheme Configuration
+
+### Available Schemes
+
+The workspace includes schemes for:
+- **ExampleApp**: Main app build and run
+- **XCUITests**: UI test execution
+- **Individual libraries**: Build and test library modules
+
+### Scheme Actions
+
+Pre and post-build actions can be configured in the workspace definition:
+
+```python
+native_xcode_scheme_actions={
+    "Build": {
+        "PRE_SCHEME_ACTIONS": ["echo 'Started'"],
+        "POST_SCHEME_ACTIONS": ["echo 'Finished'"],
+    },
+}
+```
+
+These run as shell scripts before and after the build phase.
+
+### Build Phase Scripts
+
+Xcode-specific build scripts are defined using `xcode_prebuild_script` and `xcode_postbuild_script`:
+
+```python App/BUCK:106-124
+xcode_prebuild_script(
+    name = "Hello_World",
+    cmd = '"${SRCROOT}/../scripts/sample.sh"',
+)
+
+xcode_postbuild_script(
+    name = "Bye_World",
+    cmd = 'echo Bye World!',
+)
+```
+
+<Warning>
+Build phase scripts only execute when building with Xcode, not when using Buck from the command line.
+</Warning>
+
+## Working with the Generated Project
+
+<Steps>
+  <Step title="Open the workspace">
+    After generation, open the workspace:
+    ```bash
+    open App/ExampleApp-BUCK.xcworkspace
+    ```
+    
+    <Note>
+    Always open the `.xcworkspace`, not individual `.xcodeproj` files, to ensure all dependencies are loaded.
+    </Note>
+  </Step>
+
+  <Step title="Select the scheme">
+    In Xcode:
+    - Click the scheme selector near the Run button
+    - Choose "ExampleApp"
+    - Select your target simulator or device
+  </Step>
+
+  <Step title="Build and run">
+    - Press Cmd+B to build
+    - Press Cmd+R to run
+    - Press Cmd+U to run tests
+    
+    Xcode uses Buck to perform these operations.
+  </Step>
+</Steps>
+
+## Development Workflow
+
+### Editing Code
+
+Use Xcode normally for:
+- Code editing with autocomplete
+- Syntax highlighting
+- Code navigation
+- Debugging with breakpoints
+- Interface Builder for storyboards
+
+### Building
+
+When you build in Xcode:
+1. Xcode invokes Buck with appropriate targets
+2. Buck builds dependencies in correct order
+3. Build products are placed in `buck-out/`
+4. Xcode installs the app on the simulator/device
+
+### Testing
+
+Run tests from Xcode:
+- **Unit tests**: Cmd+U runs all tests
+- **Single test**: Click the diamond icon next to a test method
+- **Test navigator**: View all tests and results
+- **Coverage**: Enable in scheme settings
+
+## Regenerating Projects
+
+You'll need to regenerate projects when:
+- Adding new BUCK files or targets
+- Modifying dependencies in BUCK files
+- Changing workspace configuration
+- Switching branches with different BUCK changes
+
+<Steps>
+  <Step title="Close Xcode">
+    Save your work and quit Xcode:
+    ```bash
+    killall Xcode
+    ```
+  </Step>
+
+  <Step title="Clean old projects">
+    ```bash
+    make clean
+    ```
+    
+    This removes:
+    - All `.xcworkspace` directories
+    - All `.xcodeproj` files
+    - Buck build outputs
+  </Step>
+
+  <Step title="Regenerate">
+    ```bash
+    make project
+    ```
+  </Step>
+</Steps>
+
+<Tip>
+You don't need to regenerate when only editing source files. Only regenerate when BUCK files change.
+</Tip>
+
+## Project Generation Options
+
+### Custom Workspace Target
+
+Generate a different workspace configuration:
+
+```bash
+tools/buck project //App:custom-workspace
+```
+
+### Including Tests
+
+Tests are automatically included based on the workspace configuration. The `ui_test_target` parameter adds UI tests:
+
+```python
+buck_local_workspace(
+    name = "workspace",
+    src_target = ":ExampleApp",
+    ui_test_target = ":XCUITests",  # Adds UI tests to workspace
+)
+```
+
+Unit tests are included via the `tests` parameter on library targets:
+
+```python App/BUCK:58-86
+apple_library(
+    name = "ExampleAppLibrary",
+    tests = app_tests,  # List of test targets
+    ...
+)
+```
+
+### Build Configurations
+
+Xcode projects include standard build configurations:
+- **Debug**: Development builds with symbols
+- **Release**: Optimized production builds
+- **Profile**: Performance profiling builds
+
+Custom configurations can be added with `action_config_names`:
+
+```python
+action_config_names = {"profile": "Profile"}
+```
+
+## Debugging
+
+### Setting Breakpoints
+
+Set breakpoints normally in Xcode:
+1. Click the gutter next to a line number
+2. Run the app with Cmd+R
+3. Debugger pauses when breakpoint is hit
+
+### LLDB Console
+
+Use LLDB commands in the console:
+- `po variable` - Print object description
+- `p variable` - Print value
+- `bt` - Print backtrace
+- `continue` - Resume execution
+
+### Debug Symbols
+
+Buck generates dSYM files for debugging. They're located in:
+```
+buck-out/gen/App/ExampleApp#dwarf-and-dsym/ExampleApp.app.dSYM
+```
+
+<Note>
+Xcode automatically finds and uses the dSYM files for symbolication.
+</Note>
+
+## Limitations
+
+### Buck-Powered Builds
+
+The generated projects use Buck for building, which means:
+- ✅ Consistent builds between CLI and Xcode
+- ✅ Fast incremental builds
+- ❌ Can't modify build settings in Xcode UI (must edit BUCK files)
+- ❌ Build output appears in Buck format
+
+### Project Modification
+
+Changes made in Xcode don't persist:
+- ⚠️ Adding files in Xcode won't update BUCK files
+- ⚠️ Changing build settings in Xcode has no effect
+- ⚠️ All changes must be made in BUCK files
+
+<Warning>
+Always edit BUCK files to add sources, dependencies, or build settings. Then regenerate the Xcode project.
+</Warning>
+
+## Xcode vs Buck Local
+
+BuckSample offers two Xcode integration approaches:
+
+| Feature | Standard Project | Buck Local Project |
+|---------|------------------|--------------------|
+| Build system | Buck | Xcode (with Buck libraries) |
+| Generation command | `make project` | `make buck_local_project` |
+| Build speed | Fast | Faster (incremental) |
+| Xcode integration | Limited | Full |
+
+See [Buck Local for faster Xcode builds](/building/buck-local) for the alternative approach.
+
+## Troubleshooting
+
+### Project Generation Fails
+
+**Problem**: Buck project command errors
+- **Solution**: Ensure BUCK files are valid:
+  ```bash
+  tools/buck targets //...
+  ```
+  Fix any errors and try again.
+
+**Problem**: Workspace doesn't open
+- **Solution**: Check that the workspace file was created:
+  ```bash
+  ls App/*.xcworkspace
+  ```
+
+### Xcode Build Issues
+
+**Problem**: Build fails in Xcode but works from CLI
+- **Solution**: Regenerate the project:
+  ```bash
+  make clean && make project
+  ```
+
+**Problem**: Source files appear red in Xcode
+- **Solution**: The files exist but the project references are stale. Regenerate.
+
+**Problem**: Changes to BUCK files not reflected
+- **Solution**: Always regenerate after editing BUCK files:
+  ```bash
+  make project
+  ```
+
+### Debugging Issues
+
+**Problem**: Breakpoints not hitting
+- **Solution**: Ensure Debug configuration is selected and optimization is disabled
+
+**Problem**: Variables show "optimized out"
+- **Solution**: Build with Debug configuration, not Release
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Buck Local" icon="bolt" href="/building/buck-local">
+    Use Buck Local for faster Xcode builds with better integration
+  </Card>
+  
+  <Card title="Testing" icon="flask" href="/building/testing">
+    Learn how to run tests in Xcode and from the command line
+  </Card>
+</CardGroup>

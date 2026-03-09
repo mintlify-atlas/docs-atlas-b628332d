@@ -1,0 +1,376 @@
+---
+title: Running Tests
+description: Execute unit tests and UI tests with Buck's testing framework
+---
+
+BuckSample includes comprehensive test coverage with unit tests, UI tests, and code coverage integration. This guide covers all testing workflows.
+
+## Quick Start
+
+Run the main test suite:
+
+```bash
+make test
+```
+
+This executes all unit tests with code coverage enabled.
+
+## Test Targets
+
+BuckSample defines multiple test targets in `App/BUCK`:
+
+### Unit Tests
+
+**UnitTests** (`App/BUCK:349-359`): Standard unit tests without a host app
+- Tests the `ExampleAppLibrary` in isolation
+- Fast execution
+- No simulator UI required
+
+**UnitTestsWithHostApp** (`App/BUCK:361-371`): Unit tests with a host application
+- Runs tests inside the full app context
+- Can test app-level integration
+- Currently disabled (see TODO in code)
+
+**ExampleAppCITests** (`App/BUCK:128-133`): Consolidated test bundle for CI
+- Bundles all library tests into a single target
+- Optimized for continuous integration
+- Includes tests from all first-party libraries
+
+### UI Tests
+
+**XCUITests** (`App/BUCK:374-395`): UI automation tests
+- Uses XCUITest framework
+- Requires a test host app and target app
+- Runs with `fbxctest` runner
+- Labeled with `ui` for filtering
+
+## Running Tests
+
+<Steps>
+  <Step title="Run unit tests with coverage">
+    Execute the main test suite:
+    
+    ```bash
+    make test
+    ```
+    
+    This runs:
+    1. Removes old coverage data
+    2. Executes `//App:ExampleAppCITests` with coverage instrumentation
+    3. Merges coverage profiles
+    4. Generates a coverage report
+  </Step>
+
+  <Step title="Run tests from Xcode">
+    Build and test using the generated Xcode workspace:
+    
+    ```bash
+    make xcode_tests
+    ```
+    
+    This command:
+    - Generates an Xcode project (if needed)
+    - Runs tests using `xcodebuild`
+    - Uses the iPhone 8 simulator
+  </Step>
+
+  <Step title="Run UI tests">
+    Execute UI tests separately:
+    
+    ```bash
+    make ui_test
+    ```
+    
+    This is a complex workflow that:
+    - Builds the XCUITests bundle
+    - Sets up the test environment
+    - Boots the simulator
+    - Installs the app
+    - Runs tests with xcodebuild
+  </Step>
+</Steps>
+
+## Test Configuration
+
+### Unit Tests with Buck
+
+The `make test` command uses a detailed configuration:
+
+```bash
+tools/buck test //App:ExampleAppCITests \
+  --test-runner-env XCTOOL_TEST_ENV_LLVM_PROFILE_FILE="$(buck_out)/tmp/code-%p.profraw%15x" \
+  --config-file code_coverage.buckconfig
+```
+
+**Key components**:
+- `--test-runner-env`: Sets environment variables for the test runner
+- `LLVM_PROFILE_FILE`: Configures where code coverage data is written
+- `--config-file`: Uses code coverage build settings
+
+### Code Coverage Configuration
+
+The `code_coverage.buckconfig` file enables coverage instrumentation:
+
+```ini
+[code_coverage]
+  clang_flags = -fprofile-instr-generate -fcoverage-mapping
+  swift_flags = -profile-generate -profile-coverage-mapping
+  ldflags = -fprofile-instr-generate
+```
+
+<Note>
+These flags instrument both Objective-C (Clang) and Swift code for coverage tracking.
+</Note>
+
+## Code Coverage
+
+### Generating Coverage Reports
+
+The test workflow automatically generates coverage reports:
+
+<Steps>
+  <Step title="Merge coverage data">
+    After tests complete, raw coverage files are merged:
+    
+    ```bash
+    xcrun llvm-profdata merge -sparse "$(buck_out)/tmp/code-"*.profraw \
+      -o "$(buck_out)/gen/Coverage.profdata"
+    ```
+  </Step>
+
+  <Step title="Generate report">
+    Create a human-readable coverage report:
+    
+    ```bash
+    xcrun llvm-cov report "$(TEST_BUNDLE)/ExampleAppCITests" \
+      -instr-profile "$(buck_out)/gen/Coverage.profdata" \
+      -ignore-filename-regex "Pods|Carthage|buck-out"
+    ```
+    
+    The report excludes:
+    - CocoaPods dependencies
+    - Carthage frameworks
+    - Buck build artifacts
+  </Step>
+</Steps>
+
+### Coverage Output Location
+
+Coverage files are stored in:
+- **Raw data**: `buck-out/tmp/code-*.profraw`
+- **Merged data**: `buck-out/gen/Coverage.profdata`
+
+<Tip>
+To view detailed coverage information, use:
+```bash
+xcrun llvm-cov show "$(TEST_BUNDLE)/ExampleAppCITests" \
+  -instr-profile "buck-out/gen/Coverage.profdata"
+```
+</Tip>
+
+## UI Test Configuration
+
+### Test Structure
+
+UI tests require three components:
+
+1. **XCUITests** (`App/BUCK:374-395`): The test code itself
+2. **XCUITestsHostApp** (`App/BUCK:421-433`): Launched first in the simulator
+3. **ExampleApp** (via `ui_test_target_app`): The app being tested
+
+### Test Host App
+
+The host app is a minimal app bundle required by XCUITest:
+
+```python
+apple_bundle(
+    name = "XCUITestsHostApp",
+    extension = "app",
+    binary = ":XCUITestsHostAppBinary",
+    product_name = "XCUITestsHostApp",
+    info_plist = "Info.plist",
+)
+```
+
+<Warning>
+The test host app and the UI test target app must be different bundles for XCUITest to work correctly.
+</Warning>
+
+### UI Test Workflow
+
+The `make ui_test` command:
+
+```bash Makefile:56-65
+# 1. Build the test bundle
+tools/buck build //App:XCUITests
+
+# 2. Prepare test directory
+rm -rf build/xcuitest
+mkdir -p build/xcuitest
+
+# 3. Link test bundle and test runner
+ln -sf buck-out/gen/App/XCUITests#.../XCUITests.xctest build/xcuitest
+unzip tools/xcuitest/XCUITests-Runner.app.zip -d build/xcuitest
+
+# 4. Boot simulator and install app
+xcrun simctl boot "iPhone 8" || true
+xcrun simctl install "iPhone 8" build/xcuitest/XCUITests.xctest/PlugIns/ExampleApp.app
+
+# 5. Run tests
+xcodebuild test-without-building -xctestrun build/xcuitest/ExampleApp.xctestrun \
+  -destination 'platform=iOS Simulator,name=iPhone 8,OS=latest'
+```
+
+## Test Discovery
+
+Buck automatically discovers test methods using XCTest conventions:
+- Methods starting with `test` in classes inheriting from `XCTestCase`
+- Works for both Swift and Objective-C tests
+
+## Running Specific Tests
+
+### Run a Single Test Target
+
+```bash
+tools/buck test //App:UnitTests
+```
+
+### Run Tests Matching a Pattern
+
+```bash
+tools/buck test //...:*Tests
+```
+
+This runs all targets ending in "Tests".
+
+### Run Tests by Label
+
+Run only UI tests:
+
+```bash
+tools/buck test --labels ui //...
+```
+
+## Xcode Test Integration
+
+To run tests from Xcode:
+
+<Steps>
+  <Step title="Generate Xcode project">
+    ```bash
+    make project
+    ```
+  </Step>
+
+  <Step title="Open workspace">
+    The workspace opens automatically, or run:
+    ```bash
+    open App/ExampleApp-BUCK.xcworkspace
+    ```
+  </Step>
+
+  <Step title="Run tests in Xcode">
+    - Select the ExampleApp scheme
+    - Press Cmd+U to run tests
+    - View results in the Test Navigator
+  </Step>
+</Steps>
+
+<Note>
+Xcode uses the same test targets defined in BUCK files, ensuring consistency between CLI and IDE testing.
+</Note>
+
+## Library Tests
+
+Each first-party library has associated tests. The consolidated CI test target includes:
+
+- `//Libraries/ASwiftModule:ASwiftModuleTests`
+- `//Libraries/Cpp1:Cpp1Tests`
+- `//Libraries/Objc1:Objc1Tests`
+- `//Libraries/ObjcAndSwift:ObjcAndSwiftTests`
+- `//Libraries/SecondSwiftModule:SecondSwiftModuleTests`
+- And more...
+
+Run tests for a specific library:
+
+```bash
+tools/buck test //Libraries/ASwiftModule:ASwiftModuleTests
+```
+
+## Continuous Integration
+
+The complete CI workflow is defined as:
+
+```bash
+make ci
+```
+
+This runs:
+1. `install_buck` - Ensure Buck is available
+2. `install_ruby_gems` - Install Ruby dependencies
+3. `targets` - Verify all targets are valid
+4. `build` - Build the main app
+5. `test` - Run unit tests with coverage
+6. `ui_test` - Run UI tests
+7. `ruby_test` - Run Ruby script tests
+8. `project` - Generate Xcode project
+9. `xcode_tests` - Run tests in Xcode
+10. `watch` - Build watch extension
+11. `message` - Build message extension
+
+## Ruby Tests
+
+BuckSample includes Ruby-based tests for Buck Local scripts:
+
+```bash
+make ruby_test
+```
+
+This runs RSpec tests for:
+- Buck Local target parsing
+- Project generation logic
+- Build script functionality
+
+## Troubleshooting
+
+### Test Failures
+
+**Problem**: Tests fail to build
+- **Solution**: Clean and rebuild: `make clean && make test`
+
+**Problem**: UI tests timeout or hang
+- **Solution**: Reset the simulator:
+  ```bash
+  xcrun simctl shutdown all
+  xcrun simctl erase "iPhone 8"
+  ```
+
+**Problem**: Coverage data not generated
+- **Solution**: Ensure `code_coverage.buckconfig` is being used and check file permissions in `buck-out/tmp/`
+
+### Common Issues
+
+**Problem**: "No tests ran" message
+- **Solution**: Verify test methods start with `test` and the class inherits from `XCTestCase`
+
+**Problem**: Simulator not found
+- **Solution**: List available simulators:
+  ```bash
+  xcrun simctl list devices
+  ```
+  Update the `TARGET_SIMULATOR` variable in Makefile
+
+**Problem**: Buck test runner errors
+- **Solution**: Tests may be defined with `run_test_separately = True`, which requires special test runners
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building the App" icon="hammer" href="/building/building-app">
+    Learn about build commands and configurations
+  </Card>
+  
+  <Card title="Xcode Projects" icon="code" href="/building/xcode-project">
+    Generate Xcode projects for IDE development
+  </Card>
+</CardGroup>

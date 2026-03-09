@@ -1,80 +1,337 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart Guide
+description: Build and run the BuckSample iOS app in minutes
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide will walk you through building and running the ExampleApp using Buck. You'll learn the basic Buck commands and workflows used in iOS development.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Make sure you've completed the [Installation](/installation) steps before proceeding.
 </Note>
+
+## Basic Workflow
+
+<Steps>
+  <Step title="Navigate to the project directory">
+    Open your terminal and navigate to the BuckSample directory:
+
+    ```bash
+    cd BuckSample
+    ```
+  </Step>
+
+  <Step title="List available targets">
+    View all build targets in the project:
+
+    ```bash
+    make targets
+    ```
+
+    Or use Buck directly:
+
+    ```bash
+    tools/buck targets //...
+    ```
+
+    You'll see output listing all available targets:
+
+    ```
+    //App:ExampleApp
+    //App:ExampleAppBinary
+    //App:ExampleAppLibrary
+    //App:ExampleAppAssets
+    //App:ExampleAppCITests
+    //App:ExampleWatchApp
+    //App:ExampleMessageExtension
+    //Libraries/ASwiftModule:ASwiftModule
+    //Libraries/Objc1:Objc1
+    //Libraries/SwiftAndObjc:SwiftAndObjc
+    //Pods:CryptoSwift
+    //Pods:PromiseKit
+    ```
+
+    <Tip>
+    The `//` prefix indicates the project root. Target paths follow the format `//path/to/directory:TargetName`.
+    </Tip>
+  </Step>
+
+  <Step title="Build the application">
+    Build the ExampleApp target:
+
+    ```bash
+    make build
+    ```
+
+    This executes:
+    ```bash
+    tools/buck build //App:ExampleApp
+    ```
+
+    Buck will:
+    1. Parse all `BUCK` files and build the dependency graph
+    2. Compile Swift and Objective-C source files
+    3. Process resources (assets, strings, storyboards)
+    4. Link libraries and create the final app bundle
+
+    Expected output:
+    ```
+    [-] PROCESSING BUCK FILES...FINISHED 0.2s
+    [-] DOWNLOADING... (0.00 B/S, TOTAL: 0.00 B, 0 Artifacts)
+    [-] BUILDING...FINISHED 12.3s [100%]
+    BUILD SUCCEEDED
+    ```
+  </Step>
+
+  <Step title="Run the app in the simulator">
+    Build, install, and launch the app in the iOS Simulator:
+
+    ```bash
+    make debug
+    ```
+
+    This runs:
+    ```bash
+    tools/buck install //App:ExampleApp --run --simulator-name 'iPhone 8'
+    ```
+
+    Buck will:
+    1. Build the app (if not already built)
+    2. Launch the iOS Simulator
+    3. Install the app on the simulator
+    4. Launch the app automatically
+
+    <Note>
+    The default simulator is iPhone 8. You can modify this in the `Makefile` or run Buck directly with a different simulator:
+    
+    ```bash
+    tools/buck install //App:ExampleApp --run --simulator-name 'iPhone 14 Pro'
+    ```
+    </Note>
+  </Step>
+
+  <Step title="Run tests">
+    Execute the unit tests:
+
+    ```bash
+    make test
+    ```
+
+    This command runs:
+    ```bash
+    tools/buck test //App:ExampleAppCITests
+    ```
+
+    Expected output:
+    ```
+    [-] PROCESSING BUCK FILES...FINISHED 0.2s
+    [-] BUILDING...FINISHED 3.1s [100%]
+    [-] TESTING...FINISHED 2.4s
+    TESTS PASSED (5 Passed / 0 Failed)
+    ```
+
+    <Tip>
+    The test target `ExampleAppCITests` bundles all unit tests from the app and its libraries into a single test suite for faster CI execution.
+    </Tip>
+  </Step>
+</Steps>
+
+## Additional Commands
+
+### Build for Release
+
+Build with release configuration:
+
+```bash
+make build_release
+```
+
+This uses a custom Buck configuration file:
+```bash
+tools/buck build //App:ExampleApp --config-file ./BuildConfigurations/Release.buckconfig
+```
+
+### Build Specific Extensions
+
+#### Watch App
+```bash
+make watch
+```
+
+Builds:
+```bash
+tools/buck build //App:ExampleWatchAppExtension#watchsimulator-i386
+```
+
+#### iMessage Extension
+```bash
+make message
+```
+
+Builds:
+```bash
+tools/buck build //App:ExampleMessageExtension
+```
+
+### Clean Build Artifacts
+
+Remove all build outputs:
+
+```bash
+make clean
+```
+
+This removes:
+- Generated Xcode projects (`.xcworkspace`, `.xcodeproj`)
+- Buck build outputs (`buck-out` directory)
+
+## Working with Xcode
+
+While Buck can build from the command line, you can also use Xcode for development.
+
+### Generate Xcode Project
+
+<CodeGroup>
+```bash Standard Project
+make project
+```
+
+```bash Buck Local Project
+make buck_local_project
+```
+</CodeGroup>
+
+**Standard project** generates an Xcode project that builds natively with Xcode:
+```bash
+tools/buck project //App:workspace
+open App/ExampleApp-BUCK.xcworkspace
+```
+
+**Buck Local project** generates an Xcode project that invokes Buck for builds:
+```bash
+bundle exec rake buck_local:generate_project \
+  buck_binary_path=tools/buck \
+  workspace_target='//App:workspace-buck-local' \
+  top_level_lib_target='//App:ExampleAppLibrary' \
+  xcworkspace='App/ExampleAppBuckLocal-BUCK.xcworkspace'
+open App/ExampleAppBuckLocal-BUCK.xcworkspace
+```
+
+<Warning>
+Generated Xcode projects are temporary. Regenerate them after modifying `BUCK` files or adding/removing source files.
+</Warning>
+
+### Run Tests in Xcode
+
+Once you've generated an Xcode project:
+
+1. Open the workspace: `App/ExampleApp-BUCK.xcworkspace`
+2. Select the `ExampleApp` scheme
+3. Press `Cmd + U` to run tests
+
+You can also use breakpoints and the debugger as normal.
+
+## Understanding Build Targets
+
+The ExampleApp is composed of several targets:
+
+### Main App Targets
+
+- **`//App:ExampleAppLibrary`** - Core application code (Swift/Objective-C)
+- **`//App:ExampleAppBinary`** - Application binary
+- **`//App:ExampleApp`** - Complete app bundle (binary + resources)
+
+### Library Targets
+
+First-party libraries demonstrating different scenarios:
+
+- **`//Libraries/ASwiftModule:ASwiftModule`** - Pure Swift module
+- **`//Libraries/Objc1:Objc1`** - Pure Objective-C module
+- **`//Libraries/SwiftAndObjc:SwiftAndObjc`** - Mixed Swift and Objective-C
+- **`//Libraries/SwiftWithAssets:SwiftWithAssets`** - Swift module with asset catalogs
+- **`//Libraries/SwiftWithMLModel:SwiftWithMLModel`** - Swift module with CoreML model
+
+### Third-Party Dependencies
+
+- **`//Pods:CryptoSwift`** - CocoaPods dependency
+- **`//Pods:PromiseKit`** - CocoaPods dependency
+- **`//PrebuiltFrameworks:AFNetworking`** - Prebuilt framework
+
+## Visualizing Dependencies
+
+Buck can generate a dependency graph for any target:
+
+```bash
+make dependency_graph
+```
+
+Or manually:
+```bash
+tools/buck query "deps(//App:ExampleAppBinary)" --dot > result.dot
+dot -Tpng result.dot -o result.png
+open result.png
+```
+
+This creates a visual representation of all dependencies for `ExampleAppBinary`.
+
+<Tip>
+Requires [Graphviz](https://graphviz.org/) to be installed:
+```bash
+brew install graphviz
+```
+</Tip>
+
+## Common Workflows
+
+### Incremental Development
+
+1. Make code changes in your editor
+2. Run `make build` to compile
+3. Run `make debug` to test in simulator
+4. Run `make test` to verify tests pass
+
+<Note>
+Buck automatically detects changes and only rebuilds affected targets. This makes incremental builds very fast.
+</Note>
+
+### Adding New Source Files
+
+1. Create your new `.swift` or `.m` file
+2. Add it to the appropriate `BUCK` file's `srcs` array
+3. Rebuild with `make build`
+
+### Debugging Build Issues
+
+If you encounter build errors:
+
+1. Check the error message for the failing target
+2. Verify dependencies are correctly declared in `BUCK` files
+3. Try a clean build: `make clean && make build`
+4. Check Buck's verbose output: `tools/buck build //App:ExampleApp -v 5`
+
+## Next Steps
+
+Now that you've built and run the app, explore these topics:
+
+- **Build Targets** - Learn how to define and configure Buck targets
+- **Dependencies** - Understand dependency management and CocoaPods integration
+- **Configuration** - Customize build settings and configurations
+- **Testing** - Set up comprehensive test suites
+
+## Quick Reference
+
+| Command | Description |
+|---------|-------------|
+| `make install_buck` | Install Buck build system |
+| `make targets` | List all build targets |
+| `make build` | Build the ExampleApp |
+| `make debug` | Build and run in simulator |
+| `make test` | Run unit tests |
+| `make project` | Generate Xcode project |
+| `make clean` | Clean build artifacts |
+| `tools/buck --help` | Show Buck CLI help |
+
+<Tip>
+All Makefile commands are shortcuts for Buck CLI commands. You can view the actual Buck commands in the `Makefile` or run Buck directly for more control.
+</Tip>

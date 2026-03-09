@@ -1,0 +1,221 @@
+---
+title: First-Party Library Modules
+description: Structure and examples of first-party library modules in BuckSample
+---
+
+BuckSample demonstrates a modular architecture with multiple first-party libraries. Each library is self-contained with its own BUCK file and follows consistent patterns.
+
+## Available Libraries
+
+The project includes 11 first-party libraries in the `Libraries/` directory:
+
+- **ASwiftModule** - Pure Swift module
+- **Cpp1** - C++ library with internal headers
+- **Objc1** - Pure Objective-C library
+- **ObjcAndSwift** - Mixed Swift/Objective-C module
+- **SecondSwiftModule** - Additional Swift module
+- **SwiftAndObjc** - Swift library with Objective-C dependencies
+- **SwiftReliesOnCXX** - Swift library depending on C++ (Bugsnag)
+- **SwiftWithAssets** - Swift library with asset catalogs
+- **SwiftWithMLModel** - Swift library with Core ML model
+- **SwiftWithPrecompiledDependency** - Swift with prebuilt frameworks
+- **YetAnotherSwiftModule** - Another Swift module example
+
+## Basic Library Structure
+
+Each first-party library follows this directory structure:
+
+```
+Libraries/
+└── ASwiftModule/
+    ├── BUCK
+    ├── Sources/
+    │   └── MySwiftClass.swift
+    └── Tests/
+        └── MySwiftClassTests.swift
+```
+
+## BUCK File Patterns
+
+### Simple Swift Library
+
+The most basic pattern uses the `first_party_library` macro:
+
+<CodeGroup>
+```python Libraries/ASwiftModule/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "ASwiftModule",
+#     deps = ["//Pods:Braintree"]
+)
+```
+
+```swift Libraries/ASwiftModule/Sources/MySwiftClass.swift
+public class MySwiftClass {
+  public init() {
+    print("Initialized MySwiftClass")
+  }
+
+  public func add(_ int1: Int, _ int2: Int) -> Int {
+    return int1 + int2
+  }
+}
+```
+</CodeGroup>
+
+<Note>
+The `first_party_library` macro automatically discovers source files in the `Sources/` directory and test files in the `Tests/` directory.
+</Note>
+
+### Objective-C Library
+
+Objective-C libraries require the `has_objective_c` flag:
+
+```python Libraries/Objc1/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "Objc1",
+    has_objective_c = True,
+)
+```
+
+### C++ Library
+
+C++ libraries use `has_cpp` and can specify internal headers:
+
+```python Libraries/Cpp1/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "Cpp1",
+    has_cpp = True,
+    internal_headers = [
+      "Sources/util.hpp",
+    ]
+)
+```
+
+## Library with Assets
+
+Libraries can include asset catalogs by depending on asset catalog targets:
+
+<CodeGroup>
+```python Libraries/SwiftWithAssets/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+load("//Config:buck_local.bzl", "buck_local_apple_asset_catalog")
+
+first_party_library(
+    name = "SwiftWithAssets",
+    deps = [
+        ":SwiftWithAssetsCatalog",
+    ],
+)
+
+buck_local_apple_asset_catalog(
+    name = "SwiftWithAssetsCatalog",
+    visibility = ["PUBLIC"],
+    dirs = ["Resources/Catalog.xcassets"],
+)
+```
+
+```swift Libraries/SwiftWithAssets/Sources/Catalog.swift
+import UIKit
+
+public enum Catalog: String {
+
+  case buck
+
+  public var image: UIImage {
+    let bundle = Bundle(for: BundleIdentifier.self)
+    guard let image = UIImage(named: self.rawValue, in: bundle, compatibleWith: nil) else {
+      fatalError("Could not find image named \(self.rawValue) in \(bundle)")
+    }
+    return image
+  }
+
+}
+
+private final class BundleIdentifier {}
+```
+</CodeGroup>
+
+## Library with ML Model
+
+Core ML models can be integrated using the `mlmodel_resource` helper:
+
+```python Libraries/SwiftWithMLModel/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library", "mlmodel_resource")
+
+first_party_library(
+    name = "SwiftWithMLModel",
+    mlmodel_generated_source = [
+        ":MarsHabitatPricerInterface",
+    ],
+    deps = [
+        ":MarsHabitatPricerMLModel",
+    ],
+)
+
+mlmodel_resource(
+    resource_source_name = "MarsHabitatPricerInterface",
+    resource_dependency_name = "MarsHabitatPricerMLModel",
+    model_directory = "Resources/",
+    model_name = "MarsHabitatPricer"
+)
+```
+
+## Using Libraries as Dependencies
+
+Libraries are referenced in the app's BUCK file using their full target path:
+
+```python App/BUCK
+first_party_library_dependencies = [
+    "//Libraries/ASwiftModule:ASwiftModule",
+    "//Libraries/Cpp1:Cpp1",
+    "//Libraries/Objc1:Objc1",
+    "//Libraries/ObjcAndSwift:ObjcAndSwift",
+    "//Libraries/SecondSwiftModule:SecondSwiftModule",
+    "//Libraries/SwiftAndObjc:SwiftAndObjc",
+    "//Libraries/SwiftReliesOnCXX:SwiftReliesOnCXX",
+    "//Libraries/SwiftWithAssets:SwiftWithAssets",
+    "//Libraries/SwiftWithMLModel:SwiftWithMLModel",
+    "//Libraries/SwiftWithPrecompiledDependency:SwiftWithPrecompiledDependency",
+    "//Libraries/YetAnotherSwiftModule:YetAnotherSwiftModule",
+]
+
+apple_library(
+    name = "ExampleAppLibrary",
+    deps = first_party_library_dependencies + [
+        # other dependencies
+    ],
+)
+```
+
+## Testing Libraries
+
+Every library automatically gets a test target. Tests are discovered from the `Tests/` directory:
+
+```
+Libraries/ASwiftModule/
+├── BUCK
+├── Sources/
+│   └── MySwiftClass.swift
+└── Tests/
+    └── MySwiftClassTests.swift  # Automatically included
+```
+
+The app's CI test target bundles all library tests:
+
+```python App/BUCK
+apple_test_all(
+    name = "ExampleAppCITests",
+    libraries = first_party_library_dependencies,
+    additional_tests = app_tests,
+)
+```
+
+<Note>
+The `first_party_library` macro is defined in `Config/buck_rule_macros.bzl` and provides consistent defaults for all libraries including Swift version, compiler flags, and test discovery.
+</Note>

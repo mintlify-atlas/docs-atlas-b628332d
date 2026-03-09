@@ -1,0 +1,527 @@
+---
+title: 'Build Configurations'
+description: 'Configure Debug and Release builds with custom optimization and compiler settings'
+icon: 'sliders'
+---
+
+## Overview
+
+BuckSample supports multiple build configurations (Debug and Release) through Buck's configuration file system. This allows you to optimize builds for different purposes: fast iteration during development (Debug) or performance and size for production (Release).
+
+## Configuration Architecture
+
+Buck uses a hierarchical configuration system where you can define custom values and reference them throughout your build files.
+
+### Base Configuration
+
+The `.buckconfig` file defines default (Debug) configuration:
+
+```ini .buckconfig
+[custom]
+  config = debug
+  optimization = -Onone
+  config_swift_compiler_flags = -DDEBUG -enable-testing -g
+```
+
+These custom values are referenced in compiler flags:
+
+```ini .buckconfig
+[swift]
+  compiler_flags = -DBUCK -whole-module-optimization $(config custom.optimization) $(config custom.config_swift_compiler_flags) $(config code_coverage.swift_flags)
+```
+
+<Note>
+The `$(config custom.optimization)` syntax references the `optimization` value from the `[custom]` section, allowing you to change optimization levels without modifying compiler flag definitions.
+</Note>
+
+### Release Configuration
+
+The `BuildConfigurations/Release.buckconfig` file overrides values for Release builds:
+
+```ini BuildConfigurations/Release.buckconfig
+[custom]
+  config = release
+  optimization = -Osize
+  config_swift_compiler_flags = -DRELEASE
+```
+
+When this file is applied using `--config-file`, it overrides the values from `.buckconfig`.
+
+## Debug Configuration
+
+The Debug configuration is optimized for fast compilation and debugging support.
+
+### Optimization Level
+
+```ini
+optimization = -Onone
+```
+
+**-Onone**: No optimization
+- Fastest compilation times
+- Variables retain their values (easier debugging)
+- Code matches source line-by-line
+- Larger binary size
+- Slower runtime performance
+
+### Swift Compiler Flags
+
+```ini
+config_swift_compiler_flags = -DDEBUG -enable-testing -g
+```
+
+<Steps>
+
+<Step title="-DDEBUG">
+
+Defines the `DEBUG` preprocessor macro, allowing conditional compilation:
+
+```swift
+#if DEBUG
+  print("Debug mode: \(detailedInfo)")
+#endif
+```
+
+</Step>
+
+<Step title="-enable-testing">
+
+Enables the `@testable` import feature:
+
+```swift
+@testable import MyApp
+
+class MyTests: XCTestCase {
+  func testInternalFunction() {
+    // Can access internal members
+    let result = InternalClass().internalMethod()
+  }
+}
+```
+
+</Step>
+
+<Step title="-g">
+
+Generates debug symbols (DWARF format) for debugging:
+- Enables breakpoints
+- Shows variable values
+- Provides stack traces with symbols
+
+</Step>
+
+</Steps>
+
+### C/C++ Flags
+
+The Debug configuration also affects C/C++ compilation:
+
+```ini .buckconfig
+[cxx]
+  cflags = -g -fmodules -fobjc-arc -D BUCK -w $(config code_coverage.clang_flags)
+  cxxflags = -fobjc-arc -std=c++14 -D DEBUG -g $(config code_coverage.clang_flags)
+```
+
+- **-g**: Debug symbols
+- **-D DEBUG**: DEBUG preprocessor macro
+- **-D BUCK**: BUCK preprocessor macro
+
+## Release Configuration
+
+The Release configuration is optimized for size and performance.
+
+### Optimization Level
+
+```ini
+optimization = -Osize
+```
+
+**-Osize**: Optimize for binary size
+- Smaller app binary
+- Reduced memory footprint
+- Balanced performance
+- Longer compilation times
+
+<Note>
+Alternative optimization levels:
+- **-O**: Optimize for speed (fastest runtime)
+- **-Osize**: Optimize for size (smallest binary)
+- **-Onone**: No optimization (Debug default)
+</Note>
+
+### Swift Compiler Flags
+
+```ini
+config_swift_compiler_flags = -DRELEASE
+```
+
+Release builds:
+- Define `RELEASE` preprocessor macro
+- Remove `-enable-testing` (no `@testable` imports)
+- Remove `-g` (no debug symbols by default, though you can add them)
+
+```swift
+#if RELEASE
+  // Production analytics
+  Analytics.enableProductionTracking()
+#endif
+```
+
+### Whole Module Optimization
+
+Both configurations use whole module optimization:
+
+```ini
+[swift]
+  compiler_flags = -DBUCK -whole-module-optimization ...
+```
+
+**Benefits:**
+- Better optimization across file boundaries
+- Smaller final binary
+- Longer compilation but better runtime performance
+
+## Building with Configurations
+
+### Debug Build (Default)
+
+Build with Debug configuration:
+
+```bash
+make build
+```
+
+Which runs:
+
+```makefile Makefile
+build:
+	$(BUCK) build //App:ExampleApp
+```
+
+This uses the default `.buckconfig` settings (Debug).
+
+### Release Build
+
+Build with Release configuration:
+
+```bash
+make build_release
+```
+
+Which runs:
+
+```makefile Makefile
+build_release:
+	$(BUCK) build //App:ExampleApp --config-file ./BuildConfigurations/Release.buckconfig
+```
+
+The `--config-file` flag applies the Release configuration on top of `.buckconfig`.
+
+### Running with Configurations
+
+<CodeGroup>
+
+```bash Debug Run
+make debug
+```
+
+```bash Release Run
+make debug_release
+```
+
+</CodeGroup>
+
+The commands:
+
+```makefile Makefile
+debug:
+	$(BUCK) install //App:ExampleApp --run --simulator-name 'iPhone 8'
+
+debug_release:
+	$(BUCK) install //App:ExampleApp --run --simulator-name 'iPhone 8' --config-file ./BuildConfigurations/Release.buckconfig
+```
+
+## Creating Custom Configurations
+
+You can create additional configurations for specific purposes.
+
+<Steps>
+
+<Step title="Create Configuration File">
+
+Create a new `.buckconfig` file in `BuildConfigurations/`:
+
+```bash
+touch BuildConfigurations/Staging.buckconfig
+```
+
+</Step>
+
+<Step title="Define Custom Values">
+
+Add configuration overrides:
+
+```ini BuildConfigurations/Staging.buckconfig
+[custom]
+  config = staging
+  optimization = -O
+  config_swift_compiler_flags = -DSTAGING -g
+```
+
+This creates a Staging configuration with:
+- Speed optimization (`-O`)
+- STAGING preprocessor macro
+- Debug symbols for debugging production issues
+
+</Step>
+
+<Step title="Use in Makefile">
+
+Add a Make target:
+
+```makefile
+build_staging:
+	$(BUCK) build //App:ExampleApp --config-file ./BuildConfigurations/Staging.buckconfig
+```
+
+</Step>
+
+<Step title="Build with Custom Config">
+
+```bash
+make build_staging
+```
+
+</Step>
+
+</Steps>
+
+## Conditional Compilation
+
+Use preprocessor macros to conditionally compile code:
+
+### Swift
+
+```swift
+#if DEBUG
+  func debugLog(_ message: String) {
+    print("[DEBUG] \(message)")
+  }
+#else
+  func debugLog(_ message: String) {
+    // No-op in release
+  }
+#endif
+
+#if RELEASE
+  let apiEndpoint = "https://api.production.com"
+#elseif STAGING
+  let apiEndpoint = "https://api.staging.com"
+#else
+  let apiEndpoint = "https://api.dev.com"
+#endif
+```
+
+### Objective-C
+
+```objc
+#ifdef DEBUG
+  NSLog(@"Debug mode enabled");
+#endif
+
+#ifdef RELEASE
+  [Analytics enableProductionMode];
+#endif
+```
+
+## Configuration Best Practices
+
+<Steps>
+
+<Step title="Use Debug for Development">
+
+Always use Debug configuration during development:
+- Faster compilation
+- Better debugging experience
+- Access to testing utilities
+
+```bash
+make build
+make debug
+```
+
+</Step>
+
+<Step title="Test Release Builds">
+
+Periodically test Release builds to catch optimization-related bugs:
+
+```bash
+make build_release
+make debug_release
+```
+
+Some bugs only appear in optimized builds (race conditions, logic errors revealed by optimization).
+
+</Step>
+
+<Step title="Use Macros Sparingly">
+
+Avoid overusing preprocessor macros. Prefer runtime configuration when possible:
+
+```swift
+// Better: Runtime configuration
+struct Config {
+  static let isDebug: Bool = {
+    #if DEBUG
+      return true
+    #else
+      return false
+    #endif
+  }()
+}
+
+if Config.isDebug {
+  print("Debug mode")
+}
+```
+
+</Step>
+
+<Step title="Keep Configurations Consistent">
+
+Ensure all configurations define the same set of custom values to avoid undefined behavior:
+
+```ini
+[custom]
+  config = <name>
+  optimization = <level>
+  config_swift_compiler_flags = <flags>
+```
+
+</Step>
+
+</Steps>
+
+## Advanced Configuration
+
+### Per-Target Configuration
+
+You can apply different configurations to different targets:
+
+```python BUCK
+apple_binary(
+  name = "AppBinary",
+  srcs = glob(["**/*.swift"]),
+  configs = {
+    "Debug": {"SWIFT_OPTIMIZATION_LEVEL": "-Onone"},
+    "Release": {"SWIFT_OPTIMIZATION_LEVEL": "-O"},
+  },
+)
+```
+
+### Environment-Specific Settings
+
+Combine with environment variables:
+
+```ini BuildConfigurations/Production.buckconfig
+[custom]
+  config = production
+  optimization = -O
+  config_swift_compiler_flags = -DPRODUCTION
+  api_endpoint = https://api.production.com
+```
+
+Reference in code:
+
+```swift
+#if PRODUCTION
+  let endpoint = "https://api.production.com"
+#endif
+```
+
+### Combining Configuration Files
+
+You can specify multiple configuration files:
+
+```bash
+buck build //App:ExampleApp \
+  --config-file ./BuildConfigurations/Release.buckconfig \
+  --config-file ./BuildConfigurations/Production.buckconfig
+```
+
+Later files override earlier ones.
+
+## Comparing Configurations
+
+| Aspect | Debug | Release |
+|--------|-------|----------|
+| **Optimization** | `-Onone` | `-Osize` |
+| **Compilation Speed** | Fast | Slower |
+| **Binary Size** | Larger | Smaller |
+| **Runtime Performance** | Slower | Faster |
+| **Debug Symbols** | Yes (`-g`) | Optional |
+| **Testing Support** | Yes (`-enable-testing`) | No |
+| **Preprocessor Macro** | `DEBUG` | `RELEASE` |
+| **Use Case** | Development, debugging | Production, App Store |
+
+## Troubleshooting
+
+### Configuration Not Applied
+
+If your configuration seems ignored:
+
+1. Verify the file path is correct:
+   ```bash
+   ls -la BuildConfigurations/Release.buckconfig
+   ```
+
+2. Check for syntax errors in the config file
+
+3. Ensure you're using `--config-file` flag:
+   ```bash
+   buck build //App:ExampleApp --config-file ./BuildConfigurations/Release.buckconfig
+   ```
+
+### Macro Not Defined
+
+If preprocessor macros aren't working:
+
+1. Verify the macro is defined in `config_swift_compiler_flags`:
+   ```ini
+   config_swift_compiler_flags = -DRELEASE
+   ```
+
+2. Check that flags are referenced correctly:
+   ```ini
+   compiler_flags = ... $(config custom.config_swift_compiler_flags)
+   ```
+
+3. Clean and rebuild:
+   ```bash
+   make clean
+   make build_release
+   ```
+
+### Unexpected Optimization
+
+If code behaves differently between configurations:
+
+1. This is often due to optimization revealing bugs (uninitialized variables, race conditions)
+2. Test with different optimization levels to isolate:
+   ```ini
+   optimization = -Onone  # No optimization
+   optimization = -O      # Speed optimization
+   optimization = -Osize  # Size optimization
+   ```
+3. Use sanitizers to catch issues:
+   ```ini
+   [swift]
+     compiler_flags = ... -sanitize=address,thread
+   ```
+
+## Related Topics
+
+- [Debugging](/advanced/debugging) - Debug builds with proper symbol support
+- [Code Coverage](/advanced/code-coverage) - Coverage configuration
+- [CI/CD](/advanced/ci-cd) - Testing both Debug and Release in CI

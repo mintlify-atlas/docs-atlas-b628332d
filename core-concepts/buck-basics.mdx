@@ -1,0 +1,208 @@
+---
+title: 'Buck Basics'
+description: 'Understanding the fundamental concepts of Buck build system'
+icon: 'cube'
+---
+
+## What is Buck?
+
+Buck is a fast build system that encourages the creation of small, reusable modules consisting of code and resources. It was designed to build multiple deliverables from a single repository and is optimized for building for multiple platforms.
+
+## Core Concepts
+
+### Build Files
+
+Buck uses `BUCK` files (or `BUCK.bzl`) to define build targets. These files are written in Starlark, a Python-like configuration language.
+
+<Info>
+BuckSample uses Skylark syntax for build files, as configured in `.buckconfig` with `default_build_file_syntax = SKYLARK`.
+</Info>
+
+Here's an example from the App module:
+
+```python title="App/BUCK"
+load("//Config:configs.bzl", "app_binary_configs", "library_configs", "watch_binary_configs", "message_binary_configs", "pretty", "info_plist_substitutions", "bundle_identifier", "DEVELOPMENT_LANGUAGE")
+load("//Config:buck_rule_macros.bzl", "apple_lib", "apple_test_lib", "apple_test_all")
+load("//Config:buck_local.bzl", "buck_local_apple_asset_catalog", "buck_local_binary", "buck_local_bundle",
+     "buck_local_workspace")
+```
+
+### Rules
+
+Rules are functions that define how to build a particular type of output. Buck provides built-in rules for different platforms and languages.
+
+<Tabs>
+  <Tab title="apple_library">
+    Defines a library target containing Swift or Objective-C code:
+
+    ```python title="App/BUCK"
+    apple_library(
+        name = "ExampleAppLibrary",
+        visibility = [
+            "//App:",
+            "//App/...",
+        ],
+        configs = library_configs(),
+        swift_version = "4.0",
+        srcs = [
+            "ViewController.swift",
+            "AppDelegate.swift",
+            "LocalizationHelper.swift",
+        ],
+        deps = [
+            "//Pods:CryptoSwift",
+            "//Pods:PromiseKit",
+            ":ExampleAppAssets",
+            "//App/Resources:ExampleAppStringResources",
+            "//App/Resources:StoryboardResources",
+        ] + first_party_library_dependencies,
+    )
+    ```
+  </Tab>
+  <Tab title="apple_binary">
+    Defines an executable binary:
+
+    ```python title="App/BUCK"
+    apple_binary(
+        name = "ExampleWatchAppExtensionBinary",
+        srcs = glob([
+            "WatchExtension/**/*.swift",
+        ]),
+        swift_compiler_flags = ["-target", "i386-apple-watchos4.0-simulator"],
+        configs = watch_binary_configs("ExampleApp.WatchApp.Extension"),
+        linker_flags = ["-e", "_WKExtensionMain"],
+        frameworks = [
+            "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework",
+            "$SDKROOT/System/Library/Frameworks/Foundation.framework",
+            "$SDKROOT/System/Library/Frameworks/UIKit.framework",
+            "$SDKROOT/System/Library/Frameworks/WatchConnectivity.framework",
+            "$SDKROOT/System/Library/Frameworks/WatchKit.framework",
+        ],
+    )
+    ```
+  </Tab>
+  <Tab title="apple_bundle">
+    Defines an iOS app bundle:
+
+    ```python title="App/BUCK"
+    buck_local_bundle(
+        name = "ExampleApp",
+        visibility = [
+            "//App:",
+        ],
+        extension = "app",
+        binary = ":ExampleAppBinary",
+        product_name = "ExampleApp",
+        info_plist = "Info.plist",
+        info_plist_substitutions = info_plist_substitutions("ExampleApp"),
+        native_xcode_deps = prebuilt_frameworks + [
+            ":ExampleWatchApp#watch",
+            ":ExampleMessageExtension",
+            ":ExampleWidgetExtension",
+        ],
+    )
+    ```
+  </Tab>
+  <Tab title="apple_resource">
+    Defines resource files to be bundled:
+
+    ```python title="App/BUCK"
+    apple_resource(
+        name = "ExampleWatchAppResources",
+        dirs = [],
+        files = glob(["WatchApplication/**/*.storyboard"])
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Targets
+
+A target is an instance of a rule with specific parameters. Each target has a unique name within its BUCK file.
+
+<Note>
+Target names follow the pattern `//path/to/package:target_name`. For example, `//App:ExampleApp` refers to the `ExampleApp` target in the `App/BUCK` file.
+</Note>
+
+### Cells
+
+Cells are independent Buck packages that can reference each other. In BuckSample, the main cells include:
+
+- `//App:` - The main application
+- `//Libraries:` - First-party library modules
+- `//Config:` - Build configuration and macros
+- `//Pods:` - Third-party CocoaPods dependencies
+- `//PrebuiltFrameworks:` - Prebuilt framework dependencies
+
+### Macros and Custom Rules
+
+BuckSample uses custom macros to simplify common build patterns:
+
+```python title="Libraries/ASwiftModule/BUCK"
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "ASwiftModule",
+)
+```
+
+This `first_party_library` macro wraps the standard `apple_library` rule with common configuration.
+
+## Build Phases and Scripts
+
+Buck supports Xcode build phase scripts for pre and post-build actions:
+
+```python title="App/BUCK"
+# Defines a Build Phase script that gets executed before the "Compile Sources" step
+xcode_prebuild_script(
+    name = "Hello_World",
+    cmd = '"${SRCROOT}/../scripts/sample.sh"',
+    inputs = [],
+    outputs = [],
+)
+
+# Defines a Build Phase script that gets executed after the "Compile Sources" step
+xcode_postbuild_script(
+    name = "Bye_World",
+    cmd = 'echo Bye World!',
+    inputs = [],
+    outputs = [],
+)
+```
+
+<Info>
+Build phase scripts are only executed when building with Xcode, not when building directly with Buck.
+</Info>
+
+## Visibility
+
+Visibility controls which other targets can depend on a given target:
+
+```python
+apple_library(
+    name = "ExampleAppLibrary",
+    visibility = [
+        "//App:",
+        "//App/...",  # Allows all targets in App and subdirectories
+    ],
+    # ...
+)
+```
+
+<Accordion title="Visibility Patterns">
+  - `"//App:"` - Only targets in the App package
+  - `"//App/..."` - All targets in App and its subpackages
+  - `"PUBLIC"` - Any target in the project
+  - `["//Foo:", "//Bar:"]` - Multiple specific packages
+</Accordion>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build Targets" icon="bullseye" href="/core-concepts/build-targets">
+    Learn about Buck target patterns and naming conventions
+  </Card>
+  <Card title="Dependencies" icon="diagram-project" href="/core-concepts/dependencies">
+    Understand how to manage and visualize dependencies
+  </Card>
+</CardGroup>

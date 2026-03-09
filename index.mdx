@@ -1,97 +1,87 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "BuckSample"
+description: "An example iOS app demonstrating how to build with Buck build system by Airbnb"
 ---
 
-## Setting up
+<div style={{textAlign: 'center', padding: '60px 20px'}}>
+  <h1 style={{fontSize: '48px', fontWeight: '700', marginBottom: '20px', color: '#1A1A1A'}}>
+    Build iOS Apps with Buck
+  </h1>
+  <p style={{fontSize: '20px', color: '#666', maxWidth: '700px', margin: '0 auto 40px'}}>
+    Learn how Airbnb uses Buck to build fast, reliable iOS applications with mixed Swift and Objective-C codebases.
+  </p>
+  <div style={{display: 'flex', gap: '16px', justifyContent: 'center', flexWrap: 'wrap'}}>
+    <a href="/quickstart" style={{
+      background: '#00b35c',
+      color: '#ffffff',
+      padding: '12px 24px',
+      borderRadius: '20px',
+      textDecoration: 'none',
+      fontWeight: '600'
+    }}>
+      Get Started
+    </a>
+    <a href="https://github.com/airbnb/BuckSample" style={{
+      background: '#2f3846',
+      color: '#a0a7b9',
+      padding: '12px 24px',
+      borderRadius: '20px',
+      textDecoration: 'none',
+      fontWeight: '600'
+    }}>
+      View on GitHub
+    </a>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
+BuckSample demonstrates production-ready iOS build patterns used at Airbnb.
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Fast Builds" icon="bolt" href="/building/buck-local">
+    Buck Local integrates Buck's speed with Xcode's developer experience
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Mixed Languages" icon="code" href="/examples/mixed-language">
+    Seamlessly combine Swift, Objective-C, and C++ in a single project
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Multi-Module" icon="layer-group" href="/examples/library-modules">
+    Organize code into reusable modules with clear dependency boundaries
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Extensions Support" icon="puzzle-piece" href="/examples/extensions">
+    Build Watch apps, iMessage extensions, and widgets alongside your main app
   </Card>
-</Columns>
+  <Card title="Dependency Management" icon="box" href="/examples/cocoapods">
+    Integrate CocoaPods and Carthage dependencies with Buck
+  </Card>
+  <Card title="Code Coverage" icon="chart-line" href="/advanced/code-coverage">
+    Generate comprehensive code coverage reports for your test suite
+  </Card>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Links
 
-Everything you need to create world-class documentation.
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install Buck and set up your development environment
+  </Card>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Build and run your first Buck iOS app in minutes
+  </Card>
+  <Card title="Build Targets" icon="bullseye" href="/core-concepts/build-targets">
+    Understand Buck's target system and build rules
+  </Card>
+  <Card title="Testing" icon="flask" href="/building/testing">
+    Run unit tests and UI tests with Buck
+  </Card>
+  <Card title="CI/CD Integration" icon="circle-nodes" href="/advanced/ci-cd">
+    Integrate Buck builds into your continuous integration pipeline
+  </Card>
+  <Card title="Debugging" icon="bug" href="/advanced/debugging">
+    Debug Buck-built apps in Xcode with breakpoints and LLDB
+  </Card>
+</CardGroup>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Why Buck?
 
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+Buck provides deterministic builds, fine-grained dependency tracking, and significant performance improvements over traditional Xcode builds. This sample project shows you how to structure your iOS app to take full advantage of Buck's capabilities while maintaining compatibility with Xcode workflows.

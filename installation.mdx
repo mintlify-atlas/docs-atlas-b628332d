@@ -1,0 +1,234 @@
+---
+title: Installation
+description: Install Buck build system and required dependencies for iOS development
+---
+
+## Prerequisites
+
+Before installing Buck, ensure you have the following prerequisites:
+
+### Java 8
+
+Buck requires Java 8 to run. You can download it from:
+
+- [Oracle Java SE Development Kit 8](https://www.oracle.com/technetwork/java/javase/downloads/jdk8-downloads-2133151.html)
+- Or use a package manager like Homebrew: `brew install openjdk@8`
+
+<Warning>
+Buck may not work correctly with newer Java versions. Make sure you're using Java 8 specifically.
+</Warning>
+
+Verify your Java installation:
+
+```bash
+java -version
+```
+
+You should see output similar to:
+
+```
+java version "1.8.0_XXX"
+Java(TM) SE Runtime Environment (build 1.8.0_XXX-bXX)
+Java HotSpot(TM) 64-Bit Server VM (build 25.XXX-bXX, mixed mode)
+```
+
+### macOS Development Tools
+
+For iOS development with Buck, you'll also need:
+
+- **Xcode**: Download from the Mac App Store
+- **Command Line Tools**: Install via `xcode-select --install`
+
+## Installing Buck
+
+<Steps>
+  <Step title="Clone the BuckSample repository">
+    First, clone the BuckSample repository to your local machine:
+
+    ```bash
+    git clone https://github.com/airbnb/BuckSample.git
+    cd BuckSample
+    ```
+  </Step>
+
+  <Step title="Install Buck using Make">
+    BuckSample includes a convenient Make command that downloads and installs Buck:
+
+    ```bash
+    make install_buck
+    ```
+
+    This command performs the following actions:
+    
+    1. Downloads Buck from Airbnb's fork hosted on JitPack
+    2. Saves the Buck executable to `tools/buck`
+    3. Makes the file executable
+
+    <Note>
+    The Makefile downloads a specific version of Buck that Airbnb has tested and verified:
+    
+    ```makefile
+    install_buck:
+    	curl https://jitpack.io/com/github/airbnb/buck/f2865fec86dbe982ce1f237494f10b65bce3d270/buck-f2865fec86dbe982ce1f237494f10b65bce3d270-java11.pex --output tools/buck
+    	chmod u+x tools/buck
+    ```
+    </Note>
+  </Step>
+
+  <Step title="Verify Buck installation">
+    Confirm that Buck is installed correctly:
+
+    ```bash
+    tools/buck --version
+    ```
+
+    You should see version information displayed:
+
+    ```
+    buck version f2865fec86
+    ```
+  </Step>
+
+  <Step title="Test Buck with a simple command">
+    List all available build targets to verify Buck can parse your project:
+
+    ```bash
+    make targets
+    ```
+
+    This runs `tools/buck targets //...` and displays all available build targets in the project:
+
+    ```
+    //App:ExampleApp
+    //App:ExampleAppBinary
+    //App:ExampleAppLibrary
+    //App:ExampleAppCITests
+    //Libraries/ASwiftModule:ASwiftModule
+    //Libraries/Objc1:Objc1
+    //Pods:CryptoSwift
+    //Pods:PromiseKit
+    ...
+    ```
+  </Step>
+</Steps>
+
+## Installation Details
+
+### Buck Executable Location
+
+The Makefile configures Buck to be installed locally in the project:
+
+```makefile
+# Use local version of Buck
+BUCK=tools/buck
+```
+
+This approach ensures:
+- **Version consistency**: Every developer uses the same Buck version
+- **No global installation**: No conflicts with other projects
+- **Easy updates**: Update Buck by re-running `make install_buck`
+
+### What Gets Installed
+
+Buck is distributed as a `.pex` file (Python EXecutable), which is a self-contained Python application. The downloaded file:
+
+- Contains all Buck dependencies
+- Requires only Java 8 to run
+- Can be executed directly without additional setup
+
+## Optional Dependencies
+
+### CocoaPods (Optional)
+
+If you need to update or modify CocoaPods dependencies:
+
+```bash
+make update_cocoapods
+```
+
+This runs:
+```bash
+pod repo update
+pod install
+```
+
+### Ruby Gems (Optional)
+
+For Buck Local functionality (generates Xcode projects that invoke Buck):
+
+```bash
+make install_ruby_gems
+```
+
+This installs Ruby dependencies using Bundler:
+```bash
+bundle install --path vendor/bundle
+```
+
+## Troubleshooting
+
+### Java Version Issues
+
+If Buck fails to run, check your Java version:
+
+```bash
+java -version
+```
+
+<Tip>
+If you have multiple Java versions installed, set `JAVA_HOME` to point to Java 8:
+
+```bash
+export JAVA_HOME=$(/usr/libexec/java_home -v 1.8)
+```
+
+Add this to your `~/.zshrc` or `~/.bash_profile` to make it permanent.
+</Tip>
+
+### Permission Denied
+
+If you get a "Permission denied" error when running Buck:
+
+```bash
+chmod u+x tools/buck
+```
+
+### Download Failures
+
+If the Buck download fails:
+
+1. Check your internet connection
+2. Try downloading manually:
+   ```bash
+   curl https://jitpack.io/com/github/airbnb/buck/f2865fec86dbe982ce1f237494f10b65bce3d270/buck-f2865fec86dbe982ce1f237494f10b65bce3d270-java11.pex --output tools/buck
+   chmod u+x tools/buck
+   ```
+
+## Next Steps
+
+Now that Buck is installed, you're ready to build and run the example app:
+
+- [Quickstart Guide](/quickstart) - Build and run your first Buck iOS application
+
+## Configuration Reference
+
+Buck's behavior is controlled by `.buckconfig` in the project root. Key settings include:
+
+```ini
+[cxx]
+  default_platform = iphonesimulator-x86_64
+  cflags = -g -fmodules -fobjc-arc -D BUCK -w
+
+[swift]
+  version = 5
+  compiler_flags = -DBUCK -whole-module-optimization
+
+[apple]
+  iphonesimulator_target_sdk_version = 14.0
+  iphoneos_target_sdk_version = 14.0
+
+[build]
+  threads = 4
+```
+
+These settings ensure consistent builds across all developer machines and CI environments.

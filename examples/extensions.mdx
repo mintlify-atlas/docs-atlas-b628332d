@@ -1,0 +1,547 @@
+---
+title: App Extensions
+description: Watch apps, iMessage extensions, and widgets in BuckSample
+---
+
+BuckSample demonstrates how to build and bundle app extensions including Watch apps, iMessage extensions, and widgets with Buck.
+
+## Extension Types
+
+The project includes three types of extensions:
+
+- **Watch App** (`ExampleWatchApp`) - watchOS companion app
+- **iMessage Extension** (`ExampleMessageExtension`) - Messages app integration
+- **Widget Extension** (`ExampleWidgetExtension`) - Home screen widget
+
+## Watch App
+
+The Watch app consists of two parts: the WatchKit app that runs on the watch, and the WatchKit extension that runs on the iPhone.
+
+### Directory Structure
+
+```
+App/
+├── WatchApplication/
+│   ├── Info.plist
+│   └── Interface.storyboard
+└── WatchExtension/
+    ├── ExtensionDelegate.swift
+    ├── InterfaceController.swift
+    └── Info.plist
+```
+
+### Watch Extension Binary
+
+The extension runs on the iPhone and communicates with the watch:
+
+```python App/BUCK
+apple_binary(
+    name = "ExampleWatchAppExtensionBinary",
+    srcs = glob([
+        "WatchExtension/**/*.swift",
+    ]),
+    # Without specifying the target, buck will provide a wrong one,
+    # which will cause compiler error.
+    swift_compiler_flags = ["-target", "i386-apple-watchos4.0-simulator"],
+    configs = watch_binary_configs("ExampleApp.WatchApp.Extension"),
+    linker_flags = ["-e", "_WKExtensionMain"],
+    frameworks = [
+        "$SDKROOT/System/Library/Frameworks/CoreGraphics.framework",
+        "$SDKROOT/System/Library/Frameworks/Foundation.framework",
+        "$SDKROOT/System/Library/Frameworks/UIKit.framework",
+        "$SDKROOT/System/Library/Frameworks/WatchConnectivity.framework",
+        "$SDKROOT/System/Library/Frameworks/WatchKit.framework",
+    ],
+    headers = glob([
+        "WatchExtension/**/*.h",
+    ]),
+)
+```
+
+<Note>
+The linker flag `-e _WKExtensionMain` tells the linker that this is a WatchKit extension with a custom entry point instead of the standard `main` function.
+</Note>
+
+### Watch Extension Bundle
+
+```python App/BUCK
+apple_bundle(
+    name = "ExampleWatchAppExtension",
+    binary = ":ExampleWatchAppExtensionBinary",
+    extension = "appex",
+    info_plist = "WatchExtension/Info.plist",
+    info_plist_substitutions = {
+        "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+        "EXECUTABLE_NAME": "ExampleWatchAppExtension",
+        "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.WatchApp.Extension"),
+        "WK_APP_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.WatchApp"),
+        "PRODUCT_NAME": "ExampleWatchAppExtension",
+        "PRODUCT_MODULE_NAME": "ExampleWatchAppExtensionBinary",
+    },
+    xcode_product_type = "com.apple.product-type.watchkit2-extension",
+)
+```
+
+### WatchKit App Bundle
+
+The app that runs on the watch itself:
+
+```python App/BUCK
+apple_binary(
+    name = "ExampleWatchAppBinary",
+    configs = watch_binary_configs("ExampleApp.WatchApp")
+)
+
+apple_bundle(
+    name = "ExampleWatchApp",
+    binary = ":ExampleWatchAppBinary",
+    extension = "app",
+    info_plist = "WatchApplication/Info.plist",
+    info_plist_substitutions = {
+        "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+        "EXECUTABLE_NAME": "ExampleWatchApp",
+        "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.WatchApp"),
+        "WK_COMPANION_APP_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp"),
+        "PRODUCT_NAME": "ExampleWatchApp",
+    },
+    xcode_product_type = "com.apple.product-type.application.watchapp2",
+    deps = [
+        ":ExampleWatchAppExtension",
+        ":ExampleWatchAppResources",
+    ],
+)
+
+apple_resource(
+    name = "ExampleWatchAppResources",
+    dirs = [],
+    files = glob(["WatchApplication/**/*.storyboard"])
+)
+```
+
+### Watch Extension Code
+
+<CodeGroup>
+```swift WatchExtension/ExtensionDelegate.swift
+import WatchKit
+import Foundation
+
+class ExtensionDelegate: NSObject, WKExtensionDelegate {
+
+    func applicationDidFinishLaunching() {
+        print("Yo, started with BUCK!")
+    }
+
+    func applicationDidBecomeActive() {
+        // Restart any tasks that were paused
+    }
+
+    func applicationWillResignActive() {
+        // Pause ongoing tasks
+    }
+
+    func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
+        for task in backgroundTasks {
+            switch task {
+            case let backgroundTask as WKApplicationRefreshBackgroundTask:
+                backgroundTask.setTaskCompletedWithSnapshot(false)
+            case let snapshotTask as WKSnapshotRefreshBackgroundTask:
+                snapshotTask.setTaskCompleted(restoredDefaultState: true,
+                                             estimatedSnapshotExpiration: Date.distantFuture,
+                                             userInfo: nil)
+            case let connectivityTask as WKWatchConnectivityRefreshBackgroundTask:
+                connectivityTask.setTaskCompletedWithSnapshot(false)
+            case let urlSessionTask as WKURLSessionRefreshBackgroundTask:
+                urlSessionTask.setTaskCompletedWithSnapshot(false)
+            default:
+                task.setTaskCompletedWithSnapshot(false)
+            }
+        }
+    }
+}
+```
+
+```swift WatchExtension/InterfaceController.swift
+import WatchKit
+import Foundation
+
+class InterfaceController: WKInterfaceController {
+    override func awake(withContext context: Any?) {
+        super.awake(withContext: context)
+    }
+}
+```
+</CodeGroup>
+
+### Important: Same BUCK File Requirement
+
+<Note>
+The watch app **must** be defined in the same BUCK file as the main app binary.
+
+Xcode is finicky about watch app embedding. Watch apps are built into the `watchos` build directory, but Xcode only knows to look there if the watch target is defined in the same `pbxproj` as the main app. If the `SDKROOT = watchos;` setting is in a different `pbxproj`, the Copy Files phase will search the `iphoneos` directory and fail.
+</Note>
+
+## iMessage Extension
+
+The iMessage extension allows users to interact with your app from within Messages.
+
+### Directory Structure
+
+```
+App/
+└── MessageExtension/
+    ├── MessagesViewController.swift
+    ├── Info.plist
+    └── Base.lproj/
+        └── MainInterface.storyboard
+```
+
+### Binary Configuration
+
+```python App/BUCK
+apple_binary(
+    name = "ExampleMessageExtensionBinary",
+    srcs = glob([
+        "MessageExtension/**/*.swift",
+    ]),
+    configs = message_binary_configs("ExampleApp.MessageExtension"),
+
+    # "-e _NSExtensionMain" tells linker this binary is app extension,
+    # so it won't fail due to missing _main
+    # "-Xlinker -rpath -Xlinker @executable_path/../../Frameworks" tells the
+    # executable binary to look for frameworks in ExampleApp.app/Frameworks
+    # instead of PlugIns, so that we don't need to have the libSwift*.dylib
+    # in ExampleApp.app/PlugIns/*.appex/Frameworks
+    linker_flags = [
+        "-e",
+        "_NSExtensionMain",
+        "-Xlinker",
+        "-rpath",
+        "-Xlinker",
+        "@executable_path/../../Frameworks",
+    ],
+)
+```
+
+<Accordion title="Understanding the linker flags">
+- **`-e _NSExtensionMain`**: Specifies the custom entry point for app extensions instead of the standard `main` function
+- **`-rpath @executable_path/../../Frameworks`**: Tells the extension to find Swift runtime libraries in the main app's Frameworks folder rather than duplicating them in the extension, reducing app size
+</Accordion>
+
+### Bundle Configuration
+
+```python App/BUCK
+apple_bundle(
+    name = "ExampleMessageExtension",
+    binary = ":ExampleMessageExtensionBinary",
+    extension = "appex",
+    info_plist = "MessageExtension/Info.plist",
+    info_plist_substitutions = {
+        "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+        "EXECUTABLE_NAME": "ExampleMessageExtension",
+        "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.MessageExtension"),
+        "PRODUCT_NAME": "ExampleMessageExtension",
+        "PRODUCT_MODULE_NAME": "ExampleMessageExtensionBinary",
+    },
+    deps = [
+        ":ExampleMessageExtensionResources",
+    ],
+    xcode_product_type = "com.apple.product-type.app-extension.messages",
+)
+
+apple_resource(
+    name = "ExampleMessageExtensionResources",
+    dirs = [],
+    files = glob(["MessageExtension/**/*.storyboard"])
+)
+```
+
+### iMessage Extension Code
+
+```swift MessageExtension/MessagesViewController.swift
+import UIKit
+import Messages
+
+class MessagesViewController: MSMessagesAppViewController {
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+    }
+
+    // MARK: - Conversation Handling
+
+    override func willBecomeActive(with conversation: MSConversation) {
+        // Called when the extension is about to present UI
+    }
+
+    override func didResignActive(with conversation: MSConversation) {
+        // Called when the user dismisses the extension
+    }
+
+    override func didReceive(_ message: MSMessage, conversation: MSConversation) {
+        // Called when a message arrives from another instance
+    }
+
+    override func didStartSending(_ message: MSMessage, conversation: MSConversation) {
+        // Called when the user taps the send button
+    }
+
+    override func didCancelSending(_ message: MSMessage, conversation: MSConversation) {
+        // Called when the user deletes the message
+    }
+}
+```
+
+## Widget Extension
+
+The widget provides home screen content using WidgetKit and SwiftUI.
+
+### Directory Structure
+
+```
+App/
+└── WidgetExtension/
+    ├── ExampleWidget.swift
+    └── Info.plist
+```
+
+### Binary Configuration
+
+```python App/BUCK
+apple_binary(
+    name = "ExampleWidgetExtensionBinary",
+    srcs = glob([
+        "WidgetExtension/**/*.swift",
+    ]),
+    configs = message_binary_configs("ExampleApp.WidgetExtension"),
+
+    # Same linker flags as ExampleMessageExtensionBinary
+    linker_flags = [
+        "-e",
+        "_NSExtensionMain",
+        "-Xlinker",
+        "-rpath",
+        "-Xlinker",
+        "@executable_path/../../Frameworks",
+    ],
+)
+```
+
+### Bundle Configuration
+
+```python App/BUCK
+apple_bundle(
+    name = "ExampleWidgetExtension",
+    binary = ":ExampleWidgetExtensionBinary",
+    extension = "appex",
+    info_plist = "WidgetExtension/Info.plist",
+    info_plist_substitutions = {
+        "DEVELOPMENT_LANGUAGE": DEVELOPMENT_LANGUAGE,
+        "EXECUTABLE_NAME": "ExampleWidgetExtension",
+        "PRODUCT_BUNDLE_IDENTIFIER": bundle_identifier("ExampleApp.WidgetExtension"),
+        "PRODUCT_NAME": "ExampleWidgetExtension",
+        "PRODUCT_MODULE_NAME": "ExampleWidgetExtensionBinary",
+        "PRODUCT_BUNDLE_PACKAGE_TYPE": "XPC!",
+    },
+    xcode_product_type = "com.apple.product-type.app-extension",
+)
+```
+
+### Widget Code
+
+```swift WidgetExtension/ExampleWidget.swift
+import WidgetKit
+import SwiftUI
+
+struct Provider: TimelineProvider {
+    func placeholder(in context: Context) -> SimpleEntry {
+        SimpleEntry(date: Date())
+    }
+
+    func getSnapshot(in context: Context, completion: @escaping (SimpleEntry) -> ()) {
+        let entry = SimpleEntry(date: Date())
+        completion(entry)
+    }
+
+    func getTimeline(in context: Context, completion: @escaping (Timeline<Entry>) -> ()) {
+        var entries: [SimpleEntry] = []
+
+        let currentDate = Date()
+        for hourOffset in 0 ..< 5 {
+            let entryDate = Calendar.current.date(byAdding: .hour, value: hourOffset, to: currentDate)!
+            let entry = SimpleEntry(date: entryDate)
+            entries.append(entry)
+        }
+
+        let timeline = Timeline(entries: entries, policy: .atEnd)
+        completion(timeline)
+    }
+}
+
+struct SimpleEntry: TimelineEntry {
+    let date: Date
+}
+
+struct ExampleWidgetEntryView : View {
+    var entry: Provider.Entry
+
+    var body: some View {
+      VStack {
+        Text("Example Widget")
+        Text(entry.date, style: .time)
+      }
+    }
+}
+
+@main
+struct ExampleWidget: Widget {
+    let kind: String = "ExampleWidget"
+
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: Provider()) { entry in
+          ExampleWidgetEntryView(entry: entry)
+        }
+        .configurationDisplayName("Example Widget")
+        .description("This is an example widget.")
+    }
+}
+```
+
+## Embedding Extensions in Main App
+
+All extensions must be declared as dependencies of the main app bundle:
+
+```python App/BUCK
+buck_local_bundle(
+    name = "ExampleApp",
+    extension = "app",
+    binary = ":ExampleAppBinary",
+    product_name = "ExampleApp",
+    info_plist = "Info.plist",
+    native_xcode_deps=[
+        # For "#watch", see https://buckbuild.com/rule/apple_bundle.html#deps
+        ":ExampleWatchApp#watch",
+        ":ExampleMessageExtension",
+        ":ExampleWidgetExtension",
+    ] + other_deps,
+)
+```
+
+<Note>
+The `#watch` suffix on the Watch app is required to tell Buck this is a watch app bundle that needs special handling.
+</Note>
+
+## Extension Bundle Identifiers
+
+Extensions must have bundle identifiers that are prefixed with the main app's identifier:
+
+<Tabs>
+  <Tab title="Main App">
+  ```
+  com.example.ExampleApp
+  ```
+  </Tab>
+  <Tab title="Watch App">
+  ```
+  com.example.ExampleApp.WatchApp
+  com.example.ExampleApp.WatchApp.Extension
+  ```
+  </Tab>
+  <Tab title="iMessage Extension">
+  ```
+  com.example.ExampleApp.MessageExtension
+  ```
+  </Tab>
+  <Tab title="Widget Extension">
+  ```
+  com.example.ExampleApp.WidgetExtension
+  ```
+  </Tab>
+</Tabs>
+
+The `bundle_identifier()` helper function handles this automatically:
+
+```python
+bundle_identifier("ExampleApp.MessageExtension")
+# Returns: com.your.base.bundle.id.ExampleApp.MessageExtension
+```
+
+## Common Extension Patterns
+
+<AccordionGroup>
+  <Accordion title="Entry point linker flags">
+  All app extensions need custom entry points:
+  
+  ```python
+  linker_flags = ["-e", "_NSExtensionMain"]
+  ```
+  
+  Watch extensions use:
+  ```python
+  linker_flags = ["-e", "_WKExtensionMain"]
+  ```
+  </Accordion>
+  
+  <Accordion title="Framework sharing with rpath">
+  To avoid duplicating Swift runtime libraries in each extension:
+  
+  ```python
+  linker_flags = [
+      "-Xlinker", "-rpath",
+      "-Xlinker", "@executable_path/../../Frameworks",
+  ]
+  ```
+  
+  This tells the extension to find frameworks in `ExampleApp.app/Frameworks/` instead of `ExampleApp.app/PlugIns/Extension.appex/Frameworks/`.
+  </Accordion>
+  
+  <Accordion title="Product types">
+  Each extension type needs the correct `xcode_product_type`:
+  
+  - Watch App: `com.apple.product-type.application.watchapp2`
+  - Watch Extension: `com.apple.product-type.watchkit2-extension`
+  - iMessage: `com.apple.product-type.app-extension.messages`
+  - Widget: `com.apple.product-type.app-extension`
+  - Generic Extension: `com.apple.product-type.app-extension`
+  </Accordion>
+  
+  <Accordion title="Sharing code with extensions">
+  Extensions can depend on first-party libraries just like the main app:
+  
+  ```python
+  apple_binary(
+      name = "ExampleMessageExtensionBinary",
+      deps = [
+          "//Libraries/ASwiftModule:ASwiftModule",
+          "//Libraries/SharedUtilities:SharedUtilities",
+      ],
+  )
+  ```
+  
+  However, be mindful that extensions have strict size and memory limits.
+  </Accordion>
+</AccordionGroup>
+
+## Building Extensions
+
+Build the main app bundle, which includes all extensions:
+
+```bash
+./buck.pex build //App:ExampleApp
+```
+
+Build individual extensions:
+
+```bash
+# Build watch app
+./buck.pex build //App:ExampleWatchApp
+
+# Build iMessage extension
+./buck.pex build //App:ExampleMessageExtension
+
+# Build widget
+./buck.pex build //App:ExampleWidgetExtension
+```
+
+<Note>
+When you build the main app bundle, Buck automatically builds all extension dependencies and bundles them correctly in the `.app` package.
+</Note>

@@ -1,0 +1,347 @@
+---
+title: 'Dependency Management'
+description: 'Understanding and visualizing Buck dependency graphs'
+icon: 'diagram-project'
+---
+
+## Understanding Dependencies
+
+Dependencies in Buck define the relationships between targets. When you build a target, Buck automatically builds all of its dependencies first.
+
+## Dependency Types
+
+### First-Party Dependencies
+
+First-party dependencies are internal libraries you develop as part of your project:
+
+```python title="App/BUCK (lines 23-37)"
+# This is a list of all of our first-party libraries that are depended upon
+# (directly or transitively) by this application.
+first_party_library_dependencies = [
+    "//Libraries/ASwiftModule:ASwiftModule",
+    "//Libraries/Cpp1:Cpp1",
+    "//Libraries/Objc1:Objc1",
+    "//Libraries/ObjcAndSwift:ObjcAndSwift",
+    "//Libraries/SecondSwiftModule:SecondSwiftModule",
+    "//Libraries/SwiftAndObjc:SwiftAndObjc",
+    "//Libraries/SwiftReliesOnCXX:SwiftReliesOnCXX",
+    "//Libraries/SwiftWithAssets:SwiftWithAssets",
+    "//Libraries/SwiftWithMLModel:SwiftWithMLModel",
+    "//Libraries/SwiftWithPrecompiledDependency:SwiftWithPrecompiledDependency",
+    "//Libraries/YetAnotherSwiftModule:YetAnotherSwiftModule",
+]
+```
+
+<Info>
+Every first-party library has an associated test target. This list is used to determine what test targets to run in CI.
+</Info>
+
+### Third-Party Dependencies
+
+Third-party dependencies come from external sources:
+
+<Tabs>
+  <Tab title="CocoaPods">
+    ```python title="App/BUCK (lines 72-75)"
+    deps = [
+        "//Pods:CryptoSwift",
+        "//Pods:PromiseKit",
+        # ...
+    ]
+    ```
+  </Tab>
+  <Tab title="Prebuilt Frameworks">
+    ```python title="App/BUCK (lines 39-44)"
+    prebuilt_frameworks = [
+        "//PrebuiltFrameworks:AFNetworking",
+
+        # Hack to enable project generation to work for the Carthage BUCK file
+        # which otherwise only has `prebuilt_apple_framework`s.
+        "//PrebuiltFrameworks:PrebuiltFrameworksProjectGeneratorHack",
+    ]
+    ```
+  </Tab>
+  <Tab title="Dynamic Frameworks">
+    ```python title="App/BUCK (lines 46-49)"
+    prebuilt_dynamic_frameworks = [
+        # TODO: Comment out CardinalMobile for now until it supports M1 mac:
+        # https://github.com/braintree/braintree_ios/issues/564
+        # "//Pods:CardinalMobile", # Prebuilt dylib
+    ]
+    ```
+  </Tab>
+</Tabs>
+
+### Resource Dependencies
+
+Resources like assets, storyboards, and strings are also dependencies:
+
+```python title="App/BUCK (lines 77-81)"
+deps = [
+    ":ExampleAppAssets",
+    "//App/Resources:ExampleAppStringResources",
+    "//App/Resources:StoryboardResources",
+    # ...
+]
+```
+
+### Build Phase Dependencies
+
+Build scripts must be added as dependencies to ensure proper execution order:
+
+```python title="App/BUCK (lines 51-56)"
+# Build Phase scripts need to be added as dependencies.
+# These only get executed when building with Xcode, not Buck.
+build_phase_scripts = [
+    ":Hello_World",
+    ":Bye_World",
+]
+```
+
+## Dependency Declaration
+
+Dependencies are declared in the `deps` parameter:
+
+```python title="App/BUCK (lines 72-85)"
+apple_library(
+    name = "ExampleAppLibrary",
+    # ...
+    deps = [
+        "//Pods:CryptoSwift",
+        "//Pods:PromiseKit",
+        ":ExampleAppAssets",
+        "//App/Resources:ExampleAppStringResources",
+        "//App/Resources:StoryboardResources",
+    ]
+    + first_party_library_dependencies
+    + prebuilt_dynamic_frameworks
+    + build_phase_scripts,
+)
+```
+
+<Note>
+You can use list concatenation to combine multiple dependency groups for cleaner organization.
+</Note>
+
+## Visualizing Dependencies
+
+Buck provides powerful tools to query and visualize dependency graphs.
+
+### Basic Dependency Query
+
+Find all dependencies of a target:
+
+```bash
+buck query "deps(//App:ExampleApp)"
+```
+
+<Accordion title="Example Output">
+```
+//App:ExampleApp
+//App:ExampleAppBinary
+//App:ExampleAppLibrary
+//App:ExampleAppAssets
+//Libraries/ASwiftModule:ASwiftModule
+//Libraries/SwiftAndObjc:SwiftAndObjc
+//Pods:CryptoSwift
+//Pods:PromiseKit
+//App/Resources:ExampleAppStringResources
+//App/Resources:StoryboardResources
+# ... and more
+```
+</Accordion>
+
+### Reverse Dependencies
+
+Find all targets that depend on a specific target:
+
+```bash
+buck query "rdeps(//App:..., //Libraries/ASwiftModule:ASwiftModule)"
+```
+
+This shows which targets in the `//App` cell depend on `ASwiftModule`.
+
+### Dependency Path
+
+Find the path between two targets:
+
+```bash
+buck query "somepath(//App:ExampleApp, //Libraries/ASwiftModule:ASwiftModule)"
+```
+
+This shows how `ExampleApp` depends on `ASwiftModule` through intermediate targets.
+
+### Dependency Graph Visualization
+
+Generate a visual representation of the dependency graph:
+
+```bash
+# Generate dot file
+buck query "deps(//App:ExampleApp)" --output-attribute buck.type --dot > deps.dot
+
+# Convert to SVG using Graphviz
+dot -Tsvg deps.dot -o deps.svg
+```
+
+<Info>
+You need to have [Graphviz](https://graphviz.org/) installed to generate visual graphs:
+
+```bash
+brew install graphviz
+```
+</Info>
+
+### Filtered Queries
+
+Query specific types of dependencies:
+
+<Tabs>
+  <Tab title="First-Party Only">
+    ```bash
+    buck query "filter('//Libraries/.*', deps(//App:ExampleApp))"
+    ```
+    Shows only dependencies from the Libraries cell.
+  </Tab>
+  <Tab title="By Rule Type">
+    ```bash
+    buck query "kind('apple_library', deps(//App:ExampleApp))"
+    ```
+    Shows only library targets.
+  </Tab>
+  <Tab title="Direct Dependencies">
+    ```bash
+    buck query "deps(//App:ExampleApp, 1)"
+    ```
+    Shows only immediate dependencies (depth = 1).
+  </Tab>
+</Tabs>
+
+## Transitive Dependencies
+
+Buck automatically resolves transitive dependencies. When a target depends on a library, it also gets access to that library's dependencies.
+
+```python title="Example"
+# Libraries/SwiftAndObjc depends on Objc1
+first_party_library(
+    name = "SwiftAndObjc",
+    has_objective_c = True,
+)
+
+# ExampleAppLibrary depends on SwiftAndObjc
+# It automatically gets Objc1 as a transitive dependency
+apple_library(
+    name = "ExampleAppLibrary",
+    deps = [
+        "//Libraries/SwiftAndObjc:SwiftAndObjc",
+    ],
+)
+```
+
+<Note>
+Buck builds dependencies in the correct order automatically, so you never need to worry about build order.
+</Note>
+
+## Dependency Best Practices
+
+<Accordion title="Keep Dependencies Minimal">
+  Only include dependencies that are actually needed. Excessive dependencies slow down builds and increase binary size.
+</Accordion>
+
+<Accordion title="Use Visibility Constraints">
+  ```python
+  apple_library(
+      name = "InternalHelper",
+      visibility = ["//App:"],  # Only visible to App package
+      # ...
+  )
+  ```
+  Prevents accidental dependencies from other parts of the codebase.
+</Accordion>
+
+<Accordion title="Organize Dependencies by Type">
+  ```python
+  deps = [
+      # Third-party
+      "//Pods:CryptoSwift",
+      "//Pods:PromiseKit",
+      
+      # Resources
+      ":ExampleAppAssets",
+      "//App/Resources:StoryboardResources",
+      
+      # First-party
+  ] + first_party_library_dependencies
+  ```
+  Makes dependencies easier to understand and maintain.
+</Accordion>
+
+<Accordion title="Document Dependency Requirements">
+  ```python
+  # This library requires AFNetworking for networking
+  # and CryptoSwift for encryption
+  deps = [
+      "//PrebuiltFrameworks:AFNetworking",
+      "//Pods:CryptoSwift",
+  ]
+  ```
+  Helps other developers understand why dependencies exist.
+</Accordion>
+
+## Testing Dependencies
+
+Tests can depend on the code they're testing:
+
+```python title="App/BUCK (lines 349-359)"
+apple_test_lib(
+    name = "UnitTests",
+    srcs = glob([
+        "UnitTests/*.swift",
+    ]),
+    deps = [
+        ":ExampleAppLibrary",
+    ]
+    + prebuilt_frameworks
+    + prebuilt_dynamic_frameworks,
+)
+```
+
+Tests automatically inherit dependencies from their test targets:
+
+```python title="App/BUCK (lines 64-71)"
+apple_library(
+    name = "ExampleAppLibrary",
+    # ...
+    tests = app_tests,  # Links this library to test targets
+    # ...
+)
+```
+
+## CI Test Target Optimization
+
+BuckSample uses a special test target that bundles all tests into one:
+
+```python title="App/BUCK (lines 128-133)"
+# This test bundles all unit test libraries into a single test target.
+# Test targets can be slow to create in CI; creating only one can save significant time.
+apple_test_all(
+    name = "ExampleAppCITests",
+    libraries = first_party_library_dependencies,
+    additional_tests = app_tests,
+    prebuilt_frameworks = prebuilt_frameworks + prebuilt_dynamic_frameworks,
+)
+```
+
+<Info>
+This optimization reduces CI build time by avoiding the overhead of creating multiple test targets.
+</Info>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/core-concepts/configuration">
+    Learn about Buck configuration files and settings
+  </Card>
+  <Card title="Buck Basics" icon="cube" href="/core-concepts/buck-basics">
+    Review fundamental Buck concepts
+  </Card>
+</CardGroup>

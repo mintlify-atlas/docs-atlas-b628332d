@@ -1,0 +1,413 @@
+---
+title: 'Buck Configuration'
+description: 'Understanding Buck configuration files and build settings'
+icon: 'gear'
+---
+
+## Configuration Files
+
+Buck uses `.buckconfig` files to configure build behavior. These files use an INI-style format with sections and key-value pairs.
+
+## .buckconfig Structure
+
+The main configuration file is located at the repository root:
+
+```ini title=".buckconfig"
+[cxx]
+  default_platform = iphonesimulator-x86_64
+  cflags = -g -fmodules -fobjc-arc -D BUCK -w $(config code_coverage.clang_flags)
+  cxxflags = -fobjc-arc -std=c++14 -D DEBUG -g $(config code_coverage.clang_flags)
+  combined_preprocess_and_compile = true
+  pch_enabled = false
+  ldflags = -Xlinker -objc_abi_version -Xlinker 2 -fobjc-arc -fobjc-link-runtime $(config code_coverage.ldflags)
+
+[swift]
+  version = 5
+  compiler_flags = -DBUCK -whole-module-optimization $(config custom.optimization) $(config custom.config_swift_compiler_flags) $(config code_coverage.swift_flags)
+  use_filelist = true
+
+[apple]
+  use_swift_delegate = false
+  use_header_maps_in_xcode = false
+  generate_missing_umbrella_headers = true
+  iphonesimulator_target_sdk_version = 14.0
+  iphoneos_target_sdk_version = 14.0
+  provisioning_profile_read_command = security cms -Di
+  xctool_default_destination_specifier = platform=iOS Simulator,OS=latest
+  xctool_path = tools/xctool/bin/xctool
+
+[parser]
+  polyglot_parsing_enabled = true
+  default_build_file_syntax = SKYLARK
+
+[project]
+  ide_force_kill = always
+  project_schemes = true
+  ide = xcode
+  allow_symlinks = forbid
+  ignore = tools, \
+           .git, \
+
+[build]
+  threads = 4
+
+[custom]
+  config = debug
+  optimization = -Onone
+  config_swift_compiler_flags = -DDEBUG -enable-testing -g
+  code_coverage_cflags = -fprofile-instr-generate -fcoverage-mapping
+  code_coverage_cxxflags = -fprofile-instr-generate -fcoverage-mapping
+  code_coverage_ldflags = -fprofile-instr-generate
+  code_coverage_swift_compiler_flags = -profile-generate -profile-coverage-mapping
+```
+
+## Configuration Sections
+
+### C/C++ Settings (`[cxx]`)
+
+Controls compilation of C and C++ code:
+
+<Tabs>
+  <Tab title="Platform">
+    ```ini
+    default_platform = iphonesimulator-x86_64
+    ```
+    Sets the default build platform. Options include:
+    - `iphonesimulator-x86_64` - iOS Simulator (Intel)
+    - `iphonesimulator-arm64` - iOS Simulator (Apple Silicon)
+    - `iphoneos-arm64` - Physical iOS devices
+  </Tab>
+  <Tab title="C Flags">
+    ```ini
+    cflags = -g -fmodules -fobjc-arc -D BUCK -w $(config code_coverage.clang_flags)
+    ```
+    Compiler flags for C code:
+    - `-g` - Include debug symbols
+    - `-fmodules` - Enable Clang modules
+    - `-fobjc-arc` - Enable Automatic Reference Counting
+    - `-D BUCK` - Define BUCK preprocessor macro
+    - `-w` - Suppress warnings
+  </Tab>
+  <Tab title="C++ Flags">
+    ```ini
+    cxxflags = -fobjc-arc -std=c++14 -D DEBUG -g $(config code_coverage.clang_flags)
+    ```
+    Compiler flags for C++ code:
+    - `-std=c++14` - Use C++14 standard
+    - `-D DEBUG` - Define DEBUG preprocessor macro
+  </Tab>
+  <Tab title="Linker Flags">
+    ```ini
+    ldflags = -Xlinker -objc_abi_version -Xlinker 2 -fobjc-arc -fobjc-link-runtime
+    ```
+    Flags passed to the linker for final binary creation.
+  </Tab>
+</Tabs>
+
+<Info>
+Precompiled headers are disabled with `pch_enabled = false` to ensure reproducible builds.
+</Info>
+
+### Swift Settings (`[swift]`)
+
+Configures Swift compilation:
+
+```ini title=".buckconfig (lines 9-12)"
+[swift]
+  version = 5
+  compiler_flags = -DBUCK -whole-module-optimization $(config custom.optimization) $(config custom.config_swift_compiler_flags) $(config code_coverage.swift_flags)
+  use_filelist = true
+```
+
+<Accordion title="Swift Compiler Flags">
+  - `-DBUCK` - Defines BUCK compilation flag
+  - `-whole-module-optimization` - Optimizes across all files in a module
+  - `$(config custom.optimization)` - References custom optimization level (-Onone for debug)
+  - `$(config custom.config_swift_compiler_flags)` - Additional flags from custom section
+  - `use_filelist = true` - Uses file lists instead of command line arguments (required for large projects)
+</Accordion>
+
+### Apple Platform Settings (`[apple]`)
+
+Configures iOS/macOS specific build options:
+
+```ini title=".buckconfig (lines 14-22)"
+[apple]
+  use_swift_delegate = false
+  use_header_maps_in_xcode = false
+  generate_missing_umbrella_headers = true
+  iphonesimulator_target_sdk_version = 14.0
+  iphoneos_target_sdk_version = 14.0
+  provisioning_profile_read_command = security cms -Di
+  xctool_default_destination_specifier = platform=iOS Simulator,OS=latest
+  xctool_path = tools/xctool/bin/xctool
+```
+
+<Tabs>
+  <Tab title="SDK Versions">
+    ```ini
+    iphonesimulator_target_sdk_version = 14.0
+    iphoneos_target_sdk_version = 14.0
+    ```
+    Sets minimum iOS version to 14.0 for both simulator and device builds.
+  </Tab>
+  <Tab title="Header Maps">
+    ```ini
+    use_header_maps_in_xcode = false
+    generate_missing_umbrella_headers = true
+    ```
+    Disables header maps but auto-generates umbrella headers for framework modules.
+  </Tab>
+  <Tab title="Testing">
+    ```ini
+    xctool_default_destination_specifier = platform=iOS Simulator,OS=latest
+    xctool_path = tools/xctool/bin/xctool
+    ```
+    Configures test execution to run on the latest iOS Simulator.
+  </Tab>
+</Tabs>
+
+### Parser Settings (`[parser]`)
+
+Controls how Buck parses build files:
+
+```ini title=".buckconfig (lines 24-26)"
+[parser]
+  polyglot_parsing_enabled = true
+  default_build_file_syntax = SKYLARK
+```
+
+<Note>
+SKYLARK (also called Starlark) is a Python-like configuration language that provides better structure and type safety than the legacy Python syntax.
+</Note>
+
+### Project Settings (`[project]`)
+
+Configures Xcode project generation:
+
+```ini title=".buckconfig (lines 28-34)"
+[project]
+  ide_force_kill = always
+  project_schemes = true
+  ide = xcode
+  allow_symlinks = forbid
+  ignore = tools, \
+           .git, \
+```
+
+<Tabs>
+  <Tab title="IDE Integration">
+    ```ini
+    ide = xcode
+    project_schemes = true
+    ```
+    Generates Xcode projects with schemes.
+  </Tab>
+  <Tab title="Process Management">
+    ```ini
+    ide_force_kill = always
+    ```
+    Forces Buck to kill running simulators/processes before building.
+  </Tab>
+  <Tab title="Ignored Paths">
+    ```ini
+    ignore = tools, \
+             .git, \
+    ```
+    Directories to exclude from Buck's watch service.
+  </Tab>
+</Tabs>
+
+### Build Settings (`[build]`)
+
+Controls build parallelism:
+
+```ini title=".buckconfig (lines 36-37)"
+[build]
+  threads = 4
+```
+
+<Info>
+Adjust the `threads` value based on your CPU core count for optimal build performance.
+</Info>
+
+### Custom Settings (`[custom]`)
+
+Project-specific configuration:
+
+```ini title=".buckconfig (lines 39-46)"
+[custom]
+  config = debug
+  optimization = -Onone
+  config_swift_compiler_flags = -DDEBUG -enable-testing -g
+  code_coverage_cflags = -fprofile-instr-generate -fcoverage-mapping
+  code_coverage_cxxflags = -fprofile-instr-generate -fcoverage-mapping
+  code_coverage_ldflags = -fprofile-instr-generate
+  code_coverage_swift_compiler_flags = -profile-generate -profile-coverage-mapping
+```
+
+<Accordion title="Build Configuration">
+  **Debug Configuration:**
+  ```ini
+  config = debug
+  optimization = -Onone
+  config_swift_compiler_flags = -DDEBUG -enable-testing -g
+  ```
+  
+  - No optimization (`-Onone`) for faster compilation
+  - Debug symbols enabled (`-g`)
+  - Testing enabled (`-enable-testing`)
+  
+  **For Release:**
+  Change to:
+  ```ini
+  config = release
+  optimization = -O
+  config_swift_compiler_flags = -DRELEASE
+  ```
+</Accordion>
+
+<Accordion title="Code Coverage">
+  Code coverage settings instrument binaries to track which code paths are executed:
+  
+  ```ini
+  code_coverage_cflags = -fprofile-instr-generate -fcoverage-mapping
+  code_coverage_swift_compiler_flags = -profile-generate -profile-coverage-mapping
+  ```
+  
+  These flags are referenced in the main compiler flags:
+  ```ini
+  cflags = ... $(config code_coverage.clang_flags)
+  ```
+</Accordion>
+
+## Configuration Variables
+
+You can reference configuration values using `$(config section.key)` syntax:
+
+```ini
+[swift]
+  compiler_flags = -DBUCK $(config custom.optimization)
+
+[custom]
+  optimization = -Onone
+```
+
+This makes it easy to reuse values and create build variants.
+
+## Build Variants
+
+Create different configurations for debug and release:
+
+<Tabs>
+  <Tab title="Debug (.buckconfig)">
+    ```ini
+    [custom]
+      config = debug
+      optimization = -Onone
+      config_swift_compiler_flags = -DDEBUG -enable-testing -g
+    ```
+  </Tab>
+  <Tab title="Release (.buckconfig.release)">
+    ```ini
+    [custom]
+      config = release
+      optimization = -O
+      config_swift_compiler_flags = -DRELEASE
+    ```
+    
+    Use with:
+    ```bash
+    buck build --config-file .buckconfig.release //App:ExampleApp
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration in Build Rules
+
+Build rules can access configuration through custom configs:
+
+```python title="App/BUCK"
+load("//Config:configs.bzl", "app_binary_configs", "library_configs")
+
+apple_library(
+    name = "ExampleAppLibrary",
+    configs = library_configs(),  # Applies library-specific configs
+    # ...
+)
+
+buck_local_binary(
+    name = "ExampleAppBinary",
+    configs = app_binary_configs("ExampleApp"),  # Applies binary configs
+    # ...
+)
+```
+
+These config functions are defined in `Config/configs.bzl` and combine settings from `.buckconfig` with rule-specific requirements.
+
+## Configuration Best Practices
+
+<Accordion title="Use Configuration Variables">
+  Instead of hardcoding flags everywhere, define them once in `[custom]` and reference them:
+  
+  ```ini
+  [custom]
+    my_common_flag = -DFEATURE_ENABLED
+  
+  [swift]
+    compiler_flags = $(config custom.my_common_flag)
+  ```
+</Accordion>
+
+<Accordion title="Keep Platform Settings Consistent">
+  Ensure simulator and device SDK versions match:
+  
+  ```ini
+  iphonesimulator_target_sdk_version = 14.0
+  iphoneos_target_sdk_version = 14.0
+  ```
+</Accordion>
+
+<Accordion title="Document Custom Settings">
+  Add comments to explain non-obvious configuration choices:
+  
+  ```ini
+  # Disable PCH for reproducible builds
+  pch_enabled = false
+  ```
+</Accordion>
+
+<Accordion title="Use Separate Configs for CI">
+  Create `.buckconfig.ci` with CI-specific settings like increased parallelism or different optimization levels.
+</Accordion>
+
+## Debugging Configuration
+
+View the effective configuration:
+
+```bash
+buck audit config
+```
+
+View a specific section:
+
+```bash
+buck audit config swift
+```
+
+View a specific key:
+
+```bash
+buck audit config swift.version
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Buck Basics" icon="cube" href="/core-concepts/buck-basics">
+    Review fundamental Buck concepts
+  </Card>
+  <Card title="Build Targets" icon="bullseye" href="/core-concepts/build-targets">
+    Learn about different target types
+  </Card>
+</CardGroup>

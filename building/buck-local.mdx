@@ -1,0 +1,555 @@
+---
+title: Buck Local
+description: Accelerate Xcode builds by pre-building dependencies with Buck
+---
+
+Buck Local is an innovative hybrid build system that combines Buck's speed for building dependencies with Xcode's native build system for active development. This gives you fast incremental builds while maintaining full Xcode integration.
+
+## What is Buck Local?
+
+Buck Local splits your build into two parts:
+
+1. **Buck builds dependencies**: All libraries, frameworks, and resources are built with Buck and copied to Xcode's DerivedData
+2. **Xcode builds your code**: Your active development code is built using Xcode's native build system
+
+### Benefits
+
+<CardGroup cols={2}>
+  <Card title="Faster Incremental Builds" icon="bolt">
+    Only rebuild what you're actively editing. Dependencies are cached.
+  </Card>
+  
+  <Card title="Full Xcode Integration" icon="apple">
+    Native Xcode build system means full IDE support and faster indexing.
+  </Card>
+  
+  <Card title="Buck-Powered Dependencies" icon="cubes">
+    Dependencies use Buck's fast, correct builds with strong caching.
+  </Card>
+  
+  <Card title="Seamless Development" icon="code">
+    Edit, build, debug, and test entirely within Xcode.
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+Generate a Buck Local workspace:
+
+```bash
+make buck_local_project
+```
+
+This creates `App/ExampleAppBuckLocal-BUCK.xcworkspace` and opens it in Xcode.
+
+## How It Works
+
+<Steps>
+  <Step title="Project generation">
+    The `make buck_local_project` command generates a special workspace:
+    
+    ```bash Makefile:93-95
+    bundle exec rake buck_local:generate_project \
+      buck_binary_path=tools/buck \
+      workspace_target='//App:workspace-buck-local' \
+      top_level_lib_target='//App:ExampleAppLibrary' \
+      xcworkspace='App/ExampleAppBuckLocal-BUCK.xcworkspace'
+    ```
+  </Step>
+
+  <Step title="Buck builds dependencies">
+    A pre-build script runs Buck to build all dependencies:
+    
+    ```bash BuckLocal/buck_build_and_copy.sh:14-16
+    cd $REPO_ROOT
+    rake buck_local:build_and_copy \
+      buck_binary_path="$REPO_ROOT/tools/buck" \
+      deps_list_file="$DEPS_LIST_FILE"
+    ```
+    
+    This script:
+    - Builds all libraries with Buck
+    - Copies `.a` files to DerivedData
+    - Copies swiftmodule files for Swift dependencies
+    - Copies resources and asset catalogs
+  </Step>
+
+  <Step title="Xcode builds your code">
+    Your app binary is built with Xcode's compiler, linking against the pre-built Buck libraries.
+  </Step>
+</Steps>
+
+<Note>
+The first build takes longer as Buck builds all dependencies. Subsequent builds are much faster since only your code rebuilds.
+</Note>
+
+## Configuration
+
+### Buck Local Targets
+
+Buck Local requires special target definitions. Regular targets are wrapped with Buck Local equivalents:
+
+#### Binary Wrapper
+
+```python Config/buck_local.bzl:1-24
+def buck_local_binary(
+        name,
+        native_xcode_deps = [],
+        buck_local_deps = [],
+        **kwargs):
+    # Regular binary for standard Buck builds
+    native.apple_binary(
+        name = name,
+        deps = native_xcode_deps,
+        **kwargs
+    )
+
+    # Buck Local binary uses pre-built libraries
+    native.apple_binary(
+        name = name + "BuckLocal",
+        deps = buck_local_deps,
+        linker_flags = ["-exported_symbols_list", "/dev/null"],
+        **kwargs
+    )
+```
+
+**Key points**:
+- Creates two binaries: one for normal Buck builds, one for Buck Local
+- `native_xcode_deps`: Dependencies built by Xcode
+- `buck_local_deps`: Pre-built Buck libraries
+
+#### Bundle Wrapper
+
+```python Config/buck_local.bzl:26-44
+def buck_local_bundle(
+        name,
+        binary,
+        native_xcode_deps = [],
+        buck_local_deps = [],
+        **kwargs):
+    native.apple_bundle(
+        name = name,
+        binary = binary,
+        deps = native_xcode_deps,
+        **kwargs
+    )
+
+    native.apple_bundle(
+        name = name + "BuckLocal",
+        binary = binary + "BuckLocal",
+        deps = buck_local_deps,
+        **kwargs
+    )
+```
+
+Bundles the appropriate binary variant with its resources.
+
+#### Workspace Configuration
+
+```python Config/buck_local.bzl:46-73
+def buck_local_workspace(
+        name,
+        workspace_name,
+        src_target,
+        ui_test_target,
+        **kwargs):
+    # Standard Xcode workspace
+    native.xcode_workspace_config(
+        name = name,
+        workspace_name = workspace_name,
+        src_target = src_target,
+        extra_tests = [ui_test_target],
+        **kwargs
+    )
+
+    # Buck Local workspace with "BuckLocal" suffix
+    native.xcode_workspace_config(
+        name = name + "-buck-local",
+        workspace_name = workspace_name + "BuckLocal",
+        src_target = src_target + "BuckLocal",
+        extra_tests = [ui_test_target + "BuckLocal"],
+        **kwargs
+    )
+```
+
+Generates both standard and Buck Local workspace configurations.
+
+### The BuckLocal/BUCK File
+
+The `BuckLocal/BUCK` file is auto-generated during project generation:
+
+```python BuckLocal/BUCK:1-29
+xcode_prebuild_script(
+    name = "BuckLocalBuildAndCopy",
+    cmd = "$REPO_ROOT/BuckLocal/buck_build_and_copy.sh"
+)
+
+apple_library(
+    name = "BuckLocal",
+    visibility = ["PUBLIC"],
+    exported_linker_flags = [
+        # System libraries
+        "-lc++", "-lz",
+        # App libraries
+        "-lExampleAppLibrary",
+        "-lASwiftModule",
+        "-lCpp1",
+        # ... more libraries
+    ],
+    deps = [
+        ":BuckLocalBuildAndCopy",  # Pre-build script
+    ] + [
+        "//PrebuiltFrameworks:AFNetworking",
+        "//App:ExampleAppAssets",
+        # ... more dependencies
+    ]
+)
+```
+
+**This file is generated by `BuckLocal/ruby_scripts/project_generator.rb` and should not be edited manually.**
+
+<Warning>
+The `BuckLocal/BUCK` file is auto-generated. Don't edit it directly—it will be overwritten on the next project generation.
+</Warning>
+
+## Build Process
+
+### Pre-Build Phase
+
+When you build in Xcode, a pre-build script runs first:
+
+```bash BuckLocal/BUCK:2-5
+xcode_prebuild_script(
+    name = "BuckLocalBuildAndCopy",
+    cmd = "$REPO_ROOT/BuckLocal/buck_build_and_copy.sh"
+)
+```
+
+This script:
+
+1. **Reads the dependency list** from `BuckLocal/lib_targets.list`
+2. **Builds all libraries with Buck**:
+   ```bash
+   rake buck_local:build_and_copy
+   ```
+3. **Copies artifacts to DerivedData**:
+   - Static libraries (`.a` files)
+   - Swift modules (`.swiftmodule`)
+   - Resources and asset catalogs
+
+### Linking Phase
+
+Your app binary links against the pre-built libraries:
+
+```python BuckLocal/BUCK:25
+exported_linker_flags = [
+    "-lExampleAppLibrary",
+    "-lASwiftModule",
+    "-lCpp1",
+    # ... all first-party and third-party libraries
+]
+```
+
+Xcode's linker finds these libraries in DerivedData.
+
+### Post-Build Phase
+
+A post-build script remaps debug source paths for breakpoint support:
+
+```python BuckLocal/BUCK:34-38
+xcode_postbuild_script(
+    name = "RemapDBGSourcePath",
+    visibility = ["PUBLIC"],
+    cmd = "$REPO_ROOT/BuckLocal/remap_debug_source_path.sh"
+)
+```
+
+This generates a `UUID.plist` inside the dSYM bundle so LLDB can map breakpoints from local source paths to compiled code.
+
+## Using Buck Local
+
+<Steps>
+  <Step title="Generate the workspace">
+    ```bash
+    make buck_local_project
+    ```
+    
+    This:
+    - Cleans old projects
+    - Generates `BuckLocal/BUCK` file
+    - Creates the Buck Local workspace
+    - Opens it in Xcode
+  </Step>
+
+  <Step title="First build">
+    In Xcode, press Cmd+B to build.
+    
+    The first build:
+    - Runs Buck to build all dependencies (slow)
+    - Builds your app code with Xcode (fast)
+    - Total time: Similar to a full Buck build
+  </Step>
+
+  <Step title="Incremental builds">
+    Make changes to your app code and build again.
+    
+    Incremental builds:
+    - Skip Buck (dependencies unchanged)
+    - Only rebuild changed files with Xcode
+    - Total time: Much faster!
+  </Step>
+
+  <Step title="Debugging and testing">
+    Use Xcode normally:
+    - Set breakpoints (they work!)
+    - Run with Cmd+R
+    - Test with Cmd+U
+    - Profile with Cmd+I
+  </Step>
+</Steps>
+
+<Tip>
+Buck Local shines when you're iterating on app-level code without changing library dependencies.
+</Tip>
+
+## When to Use Buck Local
+
+### Best For
+
+✅ **Rapid iteration on app code**  
+Editing ViewControllers, AppDelegate, and UI code
+
+✅ **UI/UX development**  
+Tweaking layouts, colors, animations
+
+✅ **Debugging**  
+Full Xcode debugger support with fast rebuilds
+
+✅ **Large dependency graphs**  
+The more dependencies, the bigger the time savings
+
+### Not Ideal For
+
+❌ **Library development**  
+If you're changing library code frequently, dependencies rebuild often
+
+❌ **CI builds**  
+CI should use pure Buck for consistency
+
+❌ **Clean builds**  
+First build is no faster than standard Buck
+
+## Comparison
+
+### Buck Local vs Standard Buck Project
+
+| Aspect | Standard Project | Buck Local |
+|--------|------------------|------------|
+| **Build system** | Buck for everything | Buck for deps, Xcode for app |
+| **Incremental builds** | Fast | Faster |
+| **First build** | Fast | Similar speed |
+| **Xcode integration** | Limited | Full native |
+| **Build settings** | Edit BUCK files | Edit BUCK files |
+| **Debugging** | Good | Excellent |
+| **Indexing** | Slower | Faster |
+| **CI/CD** | Recommended | Not recommended |
+
+### Buck Local vs Pure Xcode
+
+| Aspect | Pure Xcode | Buck Local |
+|--------|------------|------------|
+| **Correctness** | Can be incorrect | Buck ensures correctness |
+| **Caching** | Limited | Strong Buck caching |
+| **Dependencies** | Manual management | Buck manages automatically |
+| **Incremental builds** | Fast | Similarly fast |
+| **Build definitions** | Xcode project files | BUCK files |
+
+## Project Generator
+
+The Buck Local workspace is generated by Ruby scripts in `BuckLocal/ruby_scripts/`:
+
+### project_generator.rb
+
+Main orchestration:
+
+```ruby BuckLocal/ruby_scripts/project_generator.rb:19-30
+def generate_project()
+  # Generate BuckLocal/BUCK file
+  generate_buck_local_buck_file
+
+  # Create Xcode project
+  system "#{ENV['buck_binary_path']} project #{@workspace_target}"
+
+  # Update generated project
+  update_xcconfig_files
+  update_main_scheme
+end
+```
+
+### Key Steps
+
+1. **Analyze dependencies**: Query all transitive dependencies of the app
+2. **Generate linker flags**: Create flags for all Buck-built libraries
+3. **Write BuckLocal/BUCK**: Use ERB template to generate the file
+4. **Generate Xcode project**: Run `buck project`
+5. **Update xcconfig files**: Remove conflicting header search paths
+6. **Update schemes**: Disable implicit dependency building
+
+### Dependency Analysis
+
+The generator queries Buck for all dependencies:
+
+```ruby BuckLocal/ruby_scripts/project_generator.rb:43
+deps_targets = Targets.new(Targets.all_deps(@top_level_lib_target))
+```
+
+This finds:
+- `apple_library` targets
+- `prebuilt_cxx_library` targets  
+- `apple_resource` targets
+- `apple_asset_catalog` targets
+- Exported linker flags
+
+## Debugging with Buck Local
+
+### Breakpoint Support
+
+Buck Local includes full breakpoint support:
+
+1. **Debug symbols**: Buck generates dSYM bundles
+2. **Source mapping**: The `remap_debug_source_path.sh` script creates path mappings
+3. **LLDB integration**: Xcode's debugger works seamlessly
+
+### Setting Breakpoints
+
+Set breakpoints normally:
+- Click line gutters in Xcode
+- Use symbolic breakpoints
+- Set exception breakpoints
+
+All breakpoints work for both Buck-built and Xcode-built code.
+
+### Source Path Remapping
+
+Buck builds with absolute paths, but your source is in a different location. The remap script:
+
+1. Reads `BuckLocal/RemoteSourcePathList.txt`
+2. Creates mappings from Buck paths to local paths
+3. Writes mappings to the dSYM bundle
+4. LLDB uses these mappings for breakpoint resolution
+
+## Troubleshooting
+
+### Build Script Errors
+
+**Problem**: "Buck build failed" during pre-build
+- **Solution**: Check Buck output for errors. Dependencies may have compilation issues:
+  ```bash
+  tools/buck build //Libraries/...
+  ```
+
+**Problem**: "Library not found" linker errors
+- **Solution**: Regenerate the project. The `BuckLocal/BUCK` file may be stale:
+  ```bash
+  make buck_local_project
+  ```
+
+### Slow Builds
+
+**Problem**: Every build runs Buck even when libraries didn't change
+- **Solution**: Buck should cache unchanged targets. Check Buck cache:
+  ```bash
+  tools/buck clean
+  make buck_local_project
+  ```
+
+**Problem**: Pre-build script takes too long
+- **Solution**: The script builds all dependencies. This is expected on first build or when libraries change.
+
+### Debugging Issues
+
+**Problem**: Breakpoints don't work in library code
+- **Solution**: Ensure the post-build script ran successfully. Check for errors in build log.
+
+**Problem**: "Source file not found" in debugger
+- **Solution**: The source path remapping may have failed. Check `BuckLocal/RemoteSourcePathList.txt` exists.
+
+### Project Generation Fails
+
+**Problem**: Ruby errors during generation
+- **Solution**: Install Ruby dependencies:
+  ```bash
+  make install_ruby_gems
+  ```
+
+**Problem**: "Workspace target not found"
+- **Solution**: Ensure `//App:workspace-buck-local` target exists in `App/BUCK`:
+  ```bash
+  tools/buck targets //App:workspace-buck-local
+  ```
+
+## Testing Buck Local Scripts
+
+The Ruby scripts have their own test suite:
+
+```bash
+make ruby_test
+```
+
+This runs RSpec tests in `BuckLocal/ruby_scripts/spec/`:
+- `buck_local_spec.rb`: Tests main Buck Local logic
+- `buck_local_targets_spec.rb`: Tests target parsing
+- `buck_log_formatter_spec.rb`: Tests build output formatting
+
+## Advanced Configuration
+
+### Custom Xcconfig Settings
+
+Additional Xcode build settings can be added to generated xcconfig files. The `update_xcconfig_files` method:
+
+```ruby BuckLocal/ruby_scripts/project_generator.rb:79-86
+def update_xcconfig_files
+  Dir.glob("#{ROOT_DIR}/buck-out/**/*-Debug.xcconfig").each do |xcconfig_file|
+    xcconfig_content = contents_of_file(xcconfig_file)
+    # Remove conflicting search paths
+    xcconfig_content = xcconfig_content.lines.reject { |line|
+      line.start_with?('HEADER_SEARCH_PATHS') ||
+      line.start_with?('SWIFT_INCLUDE_PATHS')
+    }
+    write_to_file(xcconfig_content, xcconfig_file)
+  end
+end
+```
+
+<Note>
+Header and Swift include paths are removed because Buck handles these internally. Including them causes duplicate definitions.
+</Note>
+
+### Customizing the Build Script
+
+The `buck_build_and_copy.sh` script can be customized:
+
+```bash BuckLocal/buck_build_and_copy.sh:5-16
+# Set custom REPO_ROOT if needed
+export REPO_ROOT=$(git rev-parse --show-toplevel)
+
+# Set custom dependency list file
+DEPS_LIST_FILE="$REPO_ROOT/BuckLocal/lib_targets.list"
+
+# Run Buck Local build
+rake buck_local:build_and_copy \
+  buck_binary_path="$REPO_ROOT/tools/buck" \
+  deps_list_file="$DEPS_LIST_FILE"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Building the App" icon="hammer" href="/building/building-app">
+    Learn about Buck build commands and configurations
+  </Card>
+  
+  <Card title="Testing" icon="flask" href="/building/testing">
+    Run unit tests and UI tests with Buck and Xcode
+  </Card>
+</CardGroup>

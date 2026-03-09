@@ -1,0 +1,465 @@
+---
+title: Makefile Commands
+description: Complete reference of all Make targets available in BuckSample
+---
+
+The BuckSample project uses Make to provide convenient build automation. All commands use the local Buck binary at `tools/buck`.
+
+## Build Commands
+
+<Accordion title="build" icon="hammer">
+Builds the main ExampleApp target for development.
+
+```bash
+make build
+```
+
+**Implementation:**
+```makefile
+$(BUCK) build //App:ExampleApp
+```
+
+**Use case:** Standard development builds with debug configuration.
+</Accordion>
+
+<Accordion title="build_release" icon="rocket">
+Builds the ExampleApp target with release configuration.
+
+```bash
+make build_release
+```
+
+**Implementation:**
+```makefile
+$(BUCK) build //App:ExampleApp --config-file ./BuildConfigurations/Release.buckconfig
+```
+
+**Use case:** Production builds with optimizations enabled.
+</Accordion>
+
+<Accordion title="watch" icon="watch">
+Builds the watchOS app extension.
+
+```bash
+make watch
+```
+
+**Implementation:**
+```makefile
+$(BUCK) build //App:ExampleWatchAppExtension#watchsimulator-i386
+```
+
+**Use case:** Building the watchOS companion app.
+</Accordion>
+
+<Accordion title="message" icon="message">
+Builds the iMessage extension.
+
+```bash
+make message
+```
+
+**Implementation:**
+```makefile
+$(BUCK) build //App:ExampleMessageExtension
+```
+
+**Use case:** Building the iMessage app extension.
+</Accordion>
+
+## Installation & Setup
+
+<Accordion title="install_buck" icon="download">
+Downloads and installs the Buck build tool.
+
+```bash
+make install_buck
+```
+
+**Implementation:**
+```makefile
+curl https://jitpack.io/com/github/airbnb/buck/f2865fec86dbe982ce1f237494f10b65bce3d270/buck-f2865fec86dbe982ce1f237494f10b65bce3d270-java11.pex --output tools/buck
+chmod u+x tools/buck
+```
+
+**Use case:** First-time setup or updating Buck version.
+</Accordion>
+
+<Accordion title="update_cocoapods" icon="cube">
+Updates CocoaPods repository and installs dependencies.
+
+```bash
+make update_cocoapods
+```
+
+**Implementation:**
+```makefile
+pod repo update
+pod install
+```
+
+**Use case:** Updating third-party dependencies managed by CocoaPods.
+</Accordion>
+
+<Accordion title="install_ruby_gems" icon="gem">
+Installs Ruby dependencies using Bundler.
+
+```bash
+make install_ruby_gems
+```
+
+**Implementation:**
+```makefile
+bundle install --path vendor/bundle
+```
+
+**Use case:** Installing Ruby tools needed for BuckLocal and testing.
+</Accordion>
+
+## Testing Commands
+
+<Accordion title="test" icon="flask">
+Runs unit tests with code coverage reporting.
+
+```bash
+make test
+```
+
+**Implementation:**
+```makefile
+@rm -f $(buck_out)/tmp/*.profraw
+@rm -f $(buck_out)/gen/*.profdata
+$(BUCK) test //App:ExampleAppCITests --test-runner-env XCTOOL_TEST_ENV_LLVM_PROFILE_FILE="$(buck_out)/tmp/code-%p.profraw%15x" \
+    --config-file code_coverage.buckconfig
+xcrun llvm-profdata merge -sparse "$(buck_out)/tmp/code-"*.profraw -o "$(buck_out)/gen/Coverage.profdata"
+xcrun llvm-cov report "$(TEST_BUNDLE)/ExampleAppCITests" -instr-profile "$(buck_out)/gen/Coverage.profdata" -ignore-filename-regex "Pods|Carthage|buck-out"
+```
+
+**Features:**
+- Runs CI test bundle
+- Generates code coverage data (.profraw files)
+- Merges coverage data into .profdata
+- Generates coverage report
+- Excludes third-party code (Pods, Carthage, buck-out)
+
+**Variables used:**
+- `buck_out`: Buck's output directory
+- `TEST_BUNDLE`: Path to test bundle from `buck targets --show-output`
+</Accordion>
+
+<Accordion title="ui_test" icon="mobile">
+Runs XCUITest tests on iOS Simulator.
+
+```bash
+make ui_test
+```
+
+**Implementation:**
+```makefile
+$(BUCK) build //App:XCUITests
+rm -rf ${UI_TESTS_TMP}
+mkdir -p ${UI_TESTS_TMP}
+ln -sf $(buck_out)/gen/App/XCUITests#apple-test-bundle,dwarf,no-include-frameworks,no-linkermap/XCUITests.xctest $(UI_TESTS_TMP)
+cp $(UI_TESTS_TOOLS)/ExampleApp.xctestrun $(UI_TESTS_TMP)
+unzip $(UI_TESTS_TOOLS)/XCUITests-Runner.app.zip -d $(UI_TESTS_TMP)
+xcrun simctl boot $(TARGET_SIMULATOR) || true
+xcrun simctl install $(TARGET_SIMULATOR) $(UI_TESTS_TMP)/XCUITests.xctest/PlugIns/ExampleApp.app
+xcodebuild test-without-building -xctestrun $(UI_TESTS_TMP)/ExampleApp.xctestrun -destination 'platform=iOS Simulator,name=$(shell echo $(TARGET_SIMULATOR)),OS=latest'
+```
+
+**Configuration:**
+- `TARGET_SIMULATOR`: iPhone 8 (default)
+- `UI_TESTS_TMP`: Build directory for UI tests
+- `UI_TESTS_TOOLS`: Tools directory for test runner
+
+**Steps:**
+1. Builds XCUITests bundle
+2. Prepares test environment
+3. Boots simulator
+4. Installs test app
+5. Runs tests using xcodebuild
+</Accordion>
+
+<Accordion title="xcode_tests" icon="apple">
+Runs tests through Xcode workspace (requires project generation).
+
+```bash
+make xcode_tests
+```
+
+**Implementation:**
+```makefile
+xcodebuild build test -workspace App/ExampleApp-BUCK.xcworkspace -scheme ExampleApp -destination 'platform=iOS Simulator,name=iPhone 8,OS=latest' | xcpretty && exit ${PIPESTATUS[0]}
+```
+
+**Dependencies:** Runs `make project` first to generate workspace.
+
+**Use case:** Testing via Xcode's native test runner.
+</Accordion>
+
+<Accordion title="ruby_test" icon="gem">
+Runs Ruby-based tests for BuckLocal scripts.
+
+```bash
+make ruby_test
+```
+
+**Implementation:**
+```makefile
+buck_binary_path=tools/buck bundle exec rspec BuckLocal/ruby_scripts/ -I BuckLocal/ruby_scripts/
+```
+
+**Use case:** Testing BuckLocal Ruby automation scripts.
+</Accordion>
+
+## Project Generation
+
+<Accordion title="project" icon="folder-open">
+Generates and opens the Xcode workspace.
+
+```bash
+make project
+```
+
+**Implementation:**
+```makefile
+$(BUCK) project //App:workspace
+open App/ExampleApp-BUCK.xcworkspace
+```
+
+**Steps:**
+1. Runs `make clean` to remove old projects
+2. Generates new Xcode workspace from Buck targets
+3. Opens workspace in Xcode
+
+**Use case:** Working with Xcode IDE while using Buck as build system.
+</Accordion>
+
+<Accordion title="buck_local_project" icon="folder-tree">
+Generates BuckLocal workspace for hybrid Buck/Xcode development.
+
+```bash
+make buck_local_project
+```
+
+**Implementation:**
+```makefile
+bundle exec rake buck_local:generate_project buck_binary_path=$(BUCK) workspace_target='//App:workspace-buck-local' top_level_lib_target='//App:ExampleAppLibrary' xcworkspace='App/ExampleAppBuckLocal-BUCK.xcworkspace'
+open App/ExampleAppBuckLocal-BUCK.xcworkspace
+```
+
+**Steps:**
+1. Runs `make clean`
+2. Generates BuckLocal workspace using Ruby rake task
+3. Opens BuckLocal workspace
+
+**Use case:** Hybrid development mode combining Buck's speed with Xcode's editing features.
+</Accordion>
+
+## Debugging & Running
+
+<Accordion title="debug" icon="bug">
+Installs and runs the app on iOS Simulator.
+
+```bash
+make debug
+```
+
+**Implementation:**
+```makefile
+$(BUCK) install //App:ExampleApp --run --simulator-name 'iPhone 8'
+```
+
+**Features:**
+- Installs debug build
+- Launches app automatically
+- Uses iPhone 8 simulator
+
+**Use case:** Quick testing during development.
+</Accordion>
+
+<Accordion title="debug_release" icon="rocket">
+Installs and runs release build on iOS Simulator.
+
+```bash
+make debug_release
+```
+
+**Implementation:**
+```makefile
+$(BUCK) install //App:ExampleApp --run --simulator-name 'iPhone 8' --config-file ./BuildConfigurations/Release.buckconfig
+```
+
+**Use case:** Testing release builds before distribution.
+</Accordion>
+
+## Utility Commands
+
+<Accordion title="targets" icon="list">
+Lists all Buck targets in the project.
+
+```bash
+make targets
+```
+
+**Implementation:**
+```makefile
+$(BUCK) targets //...
+```
+
+**Output:** Shows all buildable targets in the repository.
+
+**Use case:** Discovering available build targets.
+</Accordion>
+
+<Accordion title="audit" icon="magnifying-glass">
+Generates Python representations of BUCK files.
+
+```bash
+make audit
+```
+
+**Implementation:**
+```makefile
+$(BUCK) audit rules App/BUCK > Config/Gen/App-BUCK.py
+$(BUCK) audit rules Pods/BUCK > Config/Gen/Pods-BUCK.py
+```
+
+**Output:** Creates Python files in `Config/Gen/` showing parsed BUCK rules.
+
+**Use case:** Debugging Buck configuration and understanding rule expansion.
+</Accordion>
+
+<Accordion title="dependency_graph" icon="diagram-project">
+Generates and visualizes the dependency graph.
+
+```bash
+make dependency_graph
+```
+
+**Implementation:**
+```makefile
+$(BUCK) query "deps(//App:ExampleAppBinary)" --dot > result.dot && dot result.dot -Tpng -o result.png && open result.png
+```
+
+**Steps:**
+1. Queries all dependencies of ExampleAppBinary
+2. Outputs GraphViz .dot format
+3. Converts to PNG using dot command
+4. Opens visualization
+
+**Requirements:** GraphViz must be installed (`brew install graphviz`).
+
+**Use case:** Understanding and optimizing build dependencies.
+</Accordion>
+
+<Accordion title="clean" icon="trash">
+Removes generated files and Buck output.
+
+```bash
+make clean
+```
+
+**Implementation:**
+```makefile
+rm -rf **/*.xcworkspace
+rm -rf **/*.xcodeproj
+$(BUCK) clean
+```
+
+**Removes:**
+- All Xcode workspaces
+- All Xcode projects
+- Buck's build output (buck-out/)
+
+**Use case:** Fresh builds or resolving build issues.
+</Accordion>
+
+<Accordion title="kill_xcode" icon="x">
+Force quits Xcode and Simulator.
+
+```bash
+make kill_xcode
+```
+
+**Implementation:**
+```makefile
+killall Xcode || true
+killall Simulator || true
+```
+
+**Use case:** Resolving Xcode locks or hung processes.
+</Accordion>
+
+## CI Commands
+
+<Accordion title="ci" icon="circle-check">
+Runs complete CI pipeline.
+
+```bash
+make ci
+```
+
+**Implementation:**
+```makefile
+install_buck install_ruby_gems targets build test ui_test ruby_test project xcode_tests watch message
+```
+
+**Steps (in order):**
+1. `install_buck` - Install build tool
+2. `install_ruby_gems` - Install Ruby dependencies
+3. `targets` - Verify all targets are valid
+4. `build` - Build main app
+5. `test` - Run unit tests with coverage
+6. `ui_test` - Run UI tests
+7. `ruby_test` - Run Ruby tests
+8. `project` - Generate Xcode project
+9. `xcode_tests` - Run tests via Xcode
+10. `watch` - Build watch extension
+11. `message` - Build message extension
+
+**Use case:** Continuous integration and comprehensive validation.
+</Accordion>
+
+<Accordion title="log" icon="terminal">
+Simple test command that prints "Make".
+
+```bash
+make log
+```
+
+**Implementation:**
+```makefile
+echo "Make"
+```
+
+**Use case:** Verifying Make is working.
+</Accordion>
+
+## Variables
+
+The Makefile defines several variables used throughout:
+
+<ParamField path="BUCK" type="string" default="tools/buck">
+Path to the local Buck executable.
+</ParamField>
+
+<ParamField path="buck_out" type="string">
+Buck's output directory, resolved via `$(BUCK) root`.
+</ParamField>
+
+<ParamField path="TEST_BUNDLE" type="string">
+Path to the test bundle, resolved via `buck targets --show-output`.
+</ParamField>
+
+<ParamField path="UI_TESTS_TMP" type="string">
+Temporary directory for UI test artifacts: `$(buck_root)/build/xcuitest`.
+</ParamField>
+
+<ParamField path="UI_TESTS_TOOLS" type="string">
+Directory containing UI test tools: `$(buck_root)/tools/xcuitest`.
+</ParamField>
+
+<ParamField path="TARGET_SIMULATOR" type="string" default="iPhone 8">
+iOS Simulator device for testing.
+</ParamField>

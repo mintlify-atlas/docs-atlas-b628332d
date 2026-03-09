@@ -1,0 +1,140 @@
+---
+title: Introduction to BuckSample
+description: Learn how Airbnb builds iOS applications using Buck build system
+---
+
+## What is BuckSample?
+
+BuckSample is Airbnb's demonstration repository showing how they build iOS applications using Buck, a high-performance build system created by Meta (formerly Facebook). This repository serves as Airbnb's prototyping ground for new Buck functionality before implementing changes in their internal production repositories.
+
+<Note>
+BuckSample demonstrates real-world Buck usage patterns including CocoaPods integration, Swift and Objective-C libraries, Watch apps, iMessage extensions, and UI testing.
+</Note>
+
+## What is Buck?
+
+Buck is a build system that encourages the creation of small, reusable modules consisting of code and resources. It supports multiple languages and platforms, with BuckSample specifically showcasing iOS development with Swift and Objective-C.
+
+## Why Airbnb Uses Buck
+
+### Deterministic Builds
+
+Buck ensures that builds are completely deterministic - the same source code will always produce identical outputs. This is achieved through:
+
+- Explicit dependency declarations in `BUCK` files
+- Content-based hashing for build artifacts
+- Isolated build environments
+
+### Build Speed
+
+Buck significantly improves build times through:
+
+- **Incremental builds**: Only rebuilds what has changed
+- **Parallel compilation**: Leverages multiple CPU cores (configured as `threads = 4` in `.buckconfig`)
+- **Build caching**: Reuses previously built artifacts
+- **Fine-grained dependencies**: Only rebuilds affected modules
+
+### Accurate Dependency Tracking
+
+Every dependency must be explicitly declared in `BUCK` files, preventing issues like:
+
+- Hidden or implicit dependencies
+- Accidental dependency cycles
+- Unclear module boundaries
+
+<Tip>
+You can visualize your dependency graph using Buck's query command:
+
+```bash
+buck query "deps(//App:ExampleAppBinary)" --dot > result.dot
+dot -Tpng result.dot -o result.png
+```
+</Tip>
+
+## Key Features in BuckSample
+
+### Multi-Module Architecture
+
+The sample app demonstrates how to structure a large iOS application into independent modules:
+
+- **First-party libraries**: Custom Swift and Objective-C modules (11 separate libraries)
+- **Third-party dependencies**: CocoaPods integration
+- **Prebuilt frameworks**: AFNetworking and other external frameworks
+- **App extensions**: Watch app, iMessage extension, and Widget extension
+
+### Advanced iOS Features
+
+- **Watch app integration**: Complete watchOS application with extension
+- **iMessage extensions**: Custom sticker packs and interactive messages
+- **Widget extensions**: iOS 14+ widgets
+- **Asset catalogs**: Image assets and app icons
+- **Localization**: String resources and multi-language support
+- **ML models**: CoreML model integration
+
+### Development Workflows
+
+BuckSample supports multiple development approaches:
+
+1. **Pure Buck CLI**: Build and run entirely from the command line
+2. **Generated Xcode projects**: Use familiar Xcode UI with Buck-generated projects
+3. **Buck Local**: Generate Xcode projects that invoke Buck for builds, combining speed with IDE features
+
+## Configuration Files
+
+### BUCK Files
+
+Build targets are defined in `BUCK` files using Starlark (a Python-like language):
+
+```python
+apple_library(
+    name = "ExampleAppLibrary",
+    configs = library_configs(),
+    swift_version = "4.0",
+    srcs = [
+        "ViewController.swift",
+        "AppDelegate.swift",
+        "LocalizationHelper.swift",
+    ],
+    deps = [
+        "//Pods:CryptoSwift",
+        "//Pods:PromiseKit",
+        ":ExampleAppAssets",
+        "//App/Resources:ExampleAppStringResources",
+    ]
+)
+```
+
+### .buckconfig
+
+Project-wide Buck settings are configured in `.buckconfig`:
+
+```ini
+[swift]
+  version = 5
+  compiler_flags = -DBUCK -whole-module-optimization
+
+[apple]
+  iphonesimulator_target_sdk_version = 14.0
+  iphoneos_target_sdk_version = 14.0
+
+[build]
+  threads = 4
+```
+
+## Getting Started
+
+Ready to start building with Buck? The next sections will guide you through:
+
+1. [Installation](/installation) - Set up Buck and required dependencies
+2. [Quickstart](/quickstart) - Build and run your first Buck iOS app
+
+<Warning>
+Buck requires Java 8 to run. Make sure you have it installed before proceeding with the installation.
+</Warning>
+
+## Additional Resources
+
+- [Airbnb BuckSample on GitHub](https://github.com/airbnb/BuckSample)
+- [Fast reliable Swift builds with Buck](https://www.youtube.com/watch?v=8OF7L3SdY5U) - Robbert van Ginkel
+- [Ludicrously Fast Builds with Buck](https://www.youtube.com/watch?v=uvNI_E0ZgZU) - Simon Stewart
+- [Buck Build Slack Community](https://buckbuild.slack.com)

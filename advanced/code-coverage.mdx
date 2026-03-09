@@ -1,0 +1,264 @@
+---
+title: 'Code Coverage Reports'
+description: 'Generate and analyze code coverage reports for your Buck-built iOS app'
+icon: 'chart-line'
+---
+
+## Overview
+
+BuckSample includes built-in support for generating code coverage reports using LLVM's coverage tools. This allows you to measure how much of your code is being tested and identify untested code paths.
+
+## Configuration
+
+Code coverage is configured using a dedicated Buck configuration file that adds the necessary compiler flags.
+
+### Coverage Flags
+
+The `code_coverage.buckconfig` file defines the flags needed for instrumentation:
+
+```ini code_coverage.buckconfig
+[code_coverage]
+  clang_flags = -fprofile-instr-generate -fcoverage-mapping
+  swift_flags = -profile-generate -profile-coverage-mapping
+  ldflags = -fprofile-instr-generate
+```
+
+These flags are referenced in the main `.buckconfig` file:
+
+```ini .buckconfig
+[cxx]
+  cflags = -g -fmodules -fobjc-arc -D BUCK -w $(config code_coverage.clang_flags)
+  ldflags = -Xlinker -objc_abi_version -Xlinker 2 -fobjc-arc -fobjc-link-runtime $(config code_coverage.ldflags)
+
+[swift]
+  compiler_flags = -DBUCK -whole-module-optimization $(config custom.optimization) $(config custom.config_swift_compiler_flags) $(config code_coverage.swift_flags)
+```
+
+<Note>
+The `$(config ...)` syntax dynamically references values from the coverage configuration file, allowing you to enable coverage instrumentation without modifying your main build configuration.
+</Note>
+
+## Generating Coverage Reports
+
+### Using the Test Command
+
+The `make test` command runs tests with coverage enabled:
+
+<Steps>
+
+<Step title="Run Tests with Coverage">
+
+Execute the test command from your project root:
+
+```bash
+make test
+```
+
+This command performs several operations:
+
+1. Cleans previous coverage data
+2. Runs tests with LLVM profiling enabled
+3. Merges raw profile data
+4. Generates a coverage report
+
+</Step>
+
+<Step title="View Coverage Output">
+
+The command will output a coverage report showing:
+
+- Files analyzed
+- Line coverage percentages
+- Function coverage percentages
+- Region coverage percentages
+
+</Step>
+
+</Steps>
+
+### How It Works
+
+The Makefile implements the coverage workflow:
+
+```makefile Makefile
+buck_out = $(shell $(BUCK) root)/buck-out
+TEST_BUNDLE = $(shell $(BUCK) targets //App:ExampleAppCITests --show-output | awk '{ print $$2 }')
+test:
+	@rm -f $(buck_out)/tmp/*.profraw
+	@rm -f $(buck_out)/gen/*.profdata
+	$(BUCK) test //App:ExampleAppCITests --test-runner-env XCTOOL_TEST_ENV_LLVM_PROFILE_FILE="$(buck_out)/tmp/code-%p.profraw%15x" \
+		--config-file code_coverage.buckconfig
+	xcrun llvm-profdata merge -sparse "$(buck_out)/tmp/code-"*.profraw -o "$(buck_out)/gen/Coverage.profdata"
+	xcrun llvm-cov report "$(TEST_BUNDLE)/ExampleAppCITests" -instr-profile "$(buck_out)/gen/Coverage.profdata" -ignore-filename-regex "Pods|Carthage|buck-out"
+```
+
+<Steps>
+
+<Step title="Clean Previous Data">
+
+Removes old `.profraw` and `.profdata` files to ensure fresh results.
+
+</Step>
+
+<Step title="Run Instrumented Tests">
+
+Runs Buck tests with the `XCTOOL_TEST_ENV_LLVM_PROFILE_FILE` environment variable set to specify where raw coverage data should be written. The `--config-file` flag applies the coverage instrumentation flags.
+
+</Step>
+
+<Step title="Merge Profile Data">
+
+Uses `llvm-profdata merge` to combine all `.profraw` files into a single `.profdata` file:
+
+```bash
+xcrun llvm-profdata merge -sparse "buck-out/tmp/code-"*.profraw -o "buck-out/gen/Coverage.profdata"
+```
+
+The `-sparse` flag creates a more compact profile data file.
+
+</Step>
+
+<Step title="Generate Report">
+
+Uses `llvm-cov report` to analyze the test bundle and generate a human-readable coverage report:
+
+```bash
+xcrun llvm-cov report "<TEST_BUNDLE>/ExampleAppCITests" -instr-profile "buck-out/gen/Coverage.profdata" -ignore-filename-regex "Pods|Carthage|buck-out"
+```
+
+The `-ignore-filename-regex` flag excludes third-party dependencies and build artifacts from coverage analysis.
+
+</Step>
+
+</Steps>
+
+## LLVM Coverage Tools
+
+### llvm-profdata
+
+Merges raw profile data from multiple test runs into a single indexed profile:
+
+```bash
+xcrun llvm-profdata merge -sparse <input_files> -o <output_file>
+```
+
+**Key options:**
+- `-sparse`: Create a compact profile data file
+- `-o`: Specify output file path
+
+### llvm-cov
+
+Generates coverage reports from indexed profile data:
+
+<CodeGroup>
+
+```bash Summary Report
+xcrun llvm-cov report <binary> \
+  -instr-profile <profdata_file> \
+  -ignore-filename-regex "pattern"
+```
+
+```bash Detailed HTML Report
+xcrun llvm-cov show <binary> \
+  -instr-profile <profdata_file> \
+  -format=html \
+  -output-dir=coverage_html \
+  -ignore-filename-regex "Pods|Carthage|buck-out"
+```
+
+```bash Export as JSON
+xcrun llvm-cov export <binary> \
+  -instr-profile <profdata_file> \
+  -format=text > coverage.json
+```
+
+</CodeGroup>
+
+<Warning>
+Always use the `-ignore-filename-regex` flag to exclude third-party code (Pods, Carthage) and build artifacts (buck-out) from your coverage reports. This ensures you're measuring coverage for your own code only.
+</Warning>
+
+## Output Files
+
+Coverage data is stored in Buck's output directory:
+
+- **Raw profiles**: `buck-out/tmp/code-*.profraw` - Individual profile data from test processes
+- **Merged profile**: `buck-out/gen/Coverage.profdata` - Combined and indexed coverage data
+- **Test bundle**: Located via `buck targets //App:ExampleAppCITests --show-output`
+
+## Best Practices
+
+<Steps>
+
+<Step title="Run Coverage Regularly">
+
+Integrate coverage reports into your development workflow:
+
+```bash
+# Run tests with coverage after making changes
+make test
+
+# Review coverage percentages
+# Aim for high coverage on critical code paths
+```
+
+</Step>
+
+<Step title="Exclude Third-Party Code">
+
+Always exclude dependencies and generated code:
+
+```bash
+-ignore-filename-regex "Pods|Carthage|buck-out|Generated"
+```
+
+</Step>
+
+<Step title="Use HTML Reports for Detailed Analysis">
+
+Generate HTML reports to identify specific uncovered lines:
+
+```bash
+xcrun llvm-cov show "$(buck targets //App:ExampleAppCITests --show-output | awk '{ print $2 }')/ExampleAppCITests" \
+  -instr-profile buck-out/gen/Coverage.profdata \
+  -format=html \
+  -output-dir=coverage_html
+
+open coverage_html/index.html
+```
+
+</Step>
+
+<Step title="Track Coverage Over Time">
+
+Consider integrating coverage metrics into your CI/CD pipeline to track trends and prevent coverage regression.
+
+</Step>
+
+</Steps>
+
+## Troubleshooting
+
+### No Coverage Data Generated
+
+If no `.profraw` files are created:
+
+1. Verify the `XCTOOL_TEST_ENV_LLVM_PROFILE_FILE` environment variable is set correctly
+2. Ensure the `code_coverage.buckconfig` file is being applied with `--config-file`
+3. Check that your tests are actually running
+
+### Coverage Report Empty
+
+If the coverage report shows no files:
+
+1. Verify the test bundle path is correct
+2. Ensure the `.profdata` file was created successfully
+3. Check that your source files are being compiled with coverage flags
+
+### Incorrect Coverage Percentages
+
+If coverage seems too high or includes unwanted files:
+
+1. Review your `-ignore-filename-regex` pattern
+2. Ensure you're analyzing the correct binary
+3. Verify that coverage instrumentation is enabled during compilation

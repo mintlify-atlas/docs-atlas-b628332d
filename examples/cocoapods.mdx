@@ -1,0 +1,309 @@
+---
+title: CocoaPods Integration
+description: How BuckSample integrates CocoaPods dependencies with Buck build system
+---
+
+BuckSample demonstrates how to use CocoaPods dependencies in a Buck-based project by converting pod installations into Buck targets.
+
+## Overview
+
+The project uses CocoaPods to download dependencies but **doesn't generate Xcode projects**. Instead, pod sources are wrapped in Buck targets defined in `Pods/BUCK`.
+
+## Podfile Configuration
+
+The Podfile specifies dependencies but disables Xcode integration:
+
+```ruby Podfile
+# Set the platform globally
+platform :ios, '12.0'
+
+# Only download the files, don't create Xcode projects
+install! 'cocoapods', integrate_targets: false
+
+target 'BuckSample' do
+  pod 'Braintree', '4.28.0'
+  pod 'Braintree/DataCollector', '4.28.0'
+  pod 'Braintree/Apple-Pay', '4.28.0'
+  pod 'Braintree/PaymentFlow', '4.28.0'
+  pod 'Bugsnag', '5.17.3'
+  pod 'CryptoSwift'
+  pod 'Nimble', '8.0.2'
+  pod 'PromiseKit/CoreLocation', '6.1.1'
+  pod 'PromiseKit/CorePromise', '6.1.1'
+  pod 'Quick', '2.1.0'
+end
+```
+
+<Note>
+The key setting is `integrate_targets: false`, which tells CocoaPods to only download pod sources without modifying Xcode projects.
+</Note>
+
+## Converting Pods to Buck Targets
+
+After running `pod install`, the downloaded sources in `Pods/` are converted to Buck targets in `Pods/BUCK`.
+
+### Swift Pod Example
+
+Pure Swift pods use `apple_third_party_lib`:
+
+```python Pods/BUCK
+load("//Config:buck_rule_macros.bzl", "apple_third_party_lib")
+
+apple_third_party_lib(
+    name = "CryptoSwift",
+    srcs = glob([
+        "CryptoSwift/**/*.swift",
+    ]),
+)
+```
+
+### Mixed Swift/Objective-C Pod
+
+Pods with both Swift and Objective-C require exported headers:
+
+```python Pods/BUCK
+apple_third_party_lib(
+    name = "PromiseKit",
+    visibility = ["PUBLIC"],
+    exported_headers = glob([
+        "PromiseKit/**/*.h",
+    ], exclude = [
+        "PromiseKit/AnyPromise+Private.h",
+    ]),
+    srcs = glob([
+        "PromiseKit/**/*.m",
+        "PromiseKit/**/*.swift",
+    ], exclude = [
+        "PromiseKit/Sources/PMKCallVariadicBlock.m",
+        "PromiseKit/Sources/NSMethodSignatureForBlock.m",
+    ]),
+)
+```
+
+<Accordion title="Why exclude some files?">
+Some files are excluded because they're not considered sources in the pod's podspec. This ensures Buck builds the pod the same way CocoaPods would.
+</Accordion>
+
+### C++ Pod (Bugsnag)
+
+Pods with C/C++ code use `apple_cxx_third_party_library`:
+
+```python Pods/BUCK
+load("//Config:buck_rule_macros.bzl", "apple_cxx_third_party_library")
+
+apple_cxx_third_party_library(
+    name = "Bugsnag",
+    exported_headers = glob([
+        "Bugsnag/**/BSG_KSCrashReportWriter.h",
+        "Bugsnag/**/Bugsnag.h",
+        "Bugsnag/**/BugsnagBreadcrumb.h",
+        "Bugsnag/**/BugsnagConfiguration.h",
+        "Bugsnag/**/BugsnagCrashReport.h",
+        "Bugsnag/**/BugsnagMetaData.h",
+    ]),
+    headers = glob([
+        "Bugsnag/**/*.h",
+    ]),
+    srcs = glob([
+        "Bugsnag/**/*.c",
+        "Bugsnag/**/*.m",
+        "Bugsnag/**/*.mm",
+    ]),
+)
+```
+
+## Complex Pod with Resources
+
+The Braintree pod demonstrates handling prebuilt frameworks, static libraries, and resource bundles:
+
+<CodeGroup>
+```python Main Target
+apple_third_party_lib(
+    name = "Braintree",
+    visibility = ["PUBLIC"],
+    exported_headers = glob([
+        "Braintree/**/Public/**/*.h",
+        "Braintree/BraintreePayPal/PayPalDataCollector/Risk/PPRMOCMagnesResult.h",
+    ]),
+    headers = glob([
+        "Braintree/**/*.h",
+    ]),
+    srcs = glob([
+        "Braintree/**/*.m",
+    ]),
+    deps = [
+        ":BTDeviceCollectorLibrary",
+        ":BTPPRiskComponent",
+        ":Braintree-Drop-In-Localization-Resource",
+        ":Braintree-UI-Localization-Resource",
+        ":CardinalMobile",
+    ],
+)
+```
+
+```python Prebuilt Static Libraries
+prebuilt_cxx_library(
+    name = "BTDeviceCollectorLibrary",
+    static_lib = "Braintree/BraintreeDataCollector/Kount/libDeviceCollectorLibrary.a",
+)
+
+prebuilt_cxx_library(
+    name = "BTPPRiskComponent",
+    static_lib = "Braintree/BraintreePayPal/PayPalDataCollector/Risk/libPPRiskMagnesOC.a",
+)
+```
+
+```python Prebuilt Framework
+genrule(
+    name = "CardinalMobileFramework",
+    srcs = glob([
+        "Braintree/Frameworks/CardinalMobile.framework/**",
+    ]),
+    bash = """
+        cp -L -R ${SRCDIR}/Braintree/Frameworks/CardinalMobile.framework ${OUT}
+    """ + ("" if build_type() == "Debug" else """
+        lipo ${OUT}/CardinalMobile -remove i386 -remove x86_64 -output ${OUT}/CardinalMobile
+    """),
+    out = "CardinalMobile.framework",
+)
+
+prebuilt_apple_framework(
+    name = "CardinalMobile",
+    framework = ":CardinalMobileFramework",
+    preferred_linkage = "shared",
+    visibility = ["PUBLIC"],
+)
+```
+</CodeGroup>
+
+### Resource Bundles
+
+Pods with localization resources need to be wrapped in `apple_bundle`:
+
+<Tabs>
+  <Tab title="Resource Definition">
+```python
+apple_resource(
+    name = "Braintree-Drop-In-Localization",
+    visibility = ["PUBLIC"],
+    dirs = [
+        "Braintree/BraintreeUI/Drop-In/Localization/da.lproj",
+        "Braintree/BraintreeUI/Drop-In/Localization/de.lproj",
+        "Braintree/BraintreeUI/Drop-In/Localization/en.lproj",
+        # ... more localizations
+    ],
+)
+```
+  </Tab>
+  <Tab title="Bundle Creation">
+```python
+apple_third_party_lib(
+    name = "Braintree-Drop-In-Localization-Bundle-Library",
+    visibility = ["PUBLIC"],
+    modular = False,
+    deps = [
+        ":Braintree-Drop-In-Localization",
+    ],
+)
+
+apple_bundle(
+    name = "Braintree-Drop-In-Localization-Bundle",
+    visibility = ["PUBLIC"],
+    product_name = "Braintree-Drop-In-Localization",
+    extension = "bundle",
+    binary = ":Braintree-Drop-In-Localization-Bundle-Library#static",
+    info_plist = "Target Support Files/Braintree/ResourceBundle-Braintree-Drop-In-Localization-Info.plist",
+)
+```
+  </Tab>
+  <Tab title="Wrapping for App">
+```python
+# BUCK doesn't include bundles created via apple_bundle() in the main app
+# We need to wrap it inside a apple_resource() for it to be included
+apple_resource(
+    name = "Braintree-Drop-In-Localization-Resource",
+    visibility = ["PUBLIC"],
+    files = [],
+    dirs = [
+        ":Braintree-Drop-In-Localization-Bundle",
+    ],
+)
+```
+  </Tab>
+</Tabs>
+
+## Using Pods in Your Code
+
+Reference pod targets like any other dependency:
+
+<CodeGroup>
+```python App/BUCK
+apple_library(
+    name = "ExampleAppLibrary",
+    deps = [
+        "//Pods:CryptoSwift",
+        "//Pods:PromiseKit",
+        # other deps
+    ],
+)
+```
+
+```python Libraries/SwiftReliesOnCXX/BUCK
+first_party_library(
+    name = "SwiftReliesOnCXX",
+    deps = [
+        "//Pods:Bugsnag",
+    ],
+)
+```
+
+```swift Libraries/SwiftReliesOnCXX/Sources/MySwiftReliesOnCXXClass.swift
+import Bugsnag
+
+public class MySwiftReliesOnCXXClass {
+  public init() {
+    print("Initialized MySwiftReliesOnCXXClass")
+  }
+
+  public func doSomethingWithCXXLibrary() {
+    Bugsnag.clearBreadcrumbs()
+  }
+}
+```
+</CodeGroup>
+
+## Testing Pods
+
+Test framework pods like Quick and Nimble require special compiler flags:
+
+```python Pods/BUCK
+apple_third_party_lib(
+    name = "Quick",
+    swift_version = "5",
+    visibility = ["PUBLIC"],
+    compiler_flags = ["-fapplication-extension"],
+    swift_compiler_flags = ["-application-extension"],
+    exported_headers = glob([
+        "Quick/**/*.h",
+    ]),
+    srcs = glob([
+        "Quick/**/*.m",
+        "Quick/**/*.swift",
+    ]),
+    frameworks = [
+        "$PLATFORM_DIR/Developer/Library/Frameworks/XCTest.framework",
+    ]
+)
+```
+
+## Workflow Summary
+
+1. **Add pod to Podfile**: Specify dependencies normally
+2. **Run `pod install`**: Downloads pod sources to `Pods/` directory
+3. **Create Buck targets**: Convert pod structure to Buck targets in `Pods/BUCK`
+4. **Reference in deps**: Use `//Pods:PodName` in your BUCK files
+5. **Import in code**: Use regular Swift/Objective-C imports
+
+<Note>
+This approach gives you the dependency management of CocoaPods with the build performance and flexibility of Buck.
+</Note>

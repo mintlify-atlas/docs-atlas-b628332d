@@ -1,0 +1,321 @@
+---
+title: Mixed Language Support
+description: Swift, Objective-C, and C++ interoperability patterns in BuckSample
+---
+
+BuckSample demonstrates seamless interoperability between Swift, Objective-C, and C++ code. Buck handles the complexity of bridging headers and language mixing automatically.
+
+## Swift and Objective-C in One Module
+
+The `ObjcAndSwift` library shows how to mix Swift and Objective-C code in a single module.
+
+### BUCK Configuration
+
+```python Libraries/ObjcAndSwift/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "ObjcAndSwift",
+    has_objective_c = True,
+)
+```
+
+<Note>
+The `has_objective_c = True` flag tells Buck this module contains Objective-C code that needs to be bridged to Swift.
+</Note>
+
+### Module Structure
+
+```
+Libraries/ObjcAndSwift/
+├── BUCK
+├── Sources/
+│   ├── MyBridgedObjcClassInMixedModule.h
+│   ├── MyBridgedObjcClassInMixedModule.m
+│   ├── MyBridgedSwiftClassInMixedModule.swift
+│   └── MySwiftClassInMixedModule.swift
+└── Tests/
+    └── ObjcAndSwiftTests.swift
+```
+
+### Objective-C Code
+
+<CodeGroup>
+```objc MyBridgedObjcClassInMixedModule.h
+#import <Foundation/Foundation.h>
+
+@interface MyBridgedObjcClassInMixedModule : NSObject
+@end
+```
+
+```objc MyBridgedObjcClassInMixedModule.m
+#import "MyBridgedObjcClassInMixedModule.h"
+
+@implementation MyBridgedObjcClassInMixedModule
+// Implementation
+@end
+```
+</CodeGroup>
+
+### Swift Using Objective-C (No Bridging Header Needed)
+
+```swift MyBridgedSwiftClassInMixedModule.swift
+import Foundation
+
+public class MyBridgedSwiftClassInMixedModule: NSObject {
+
+  public func findObjectiveCInstance() -> Any {
+    // Prove that Swift can find Objective C code in this module without a bridging header.
+    // Bridging headers aren't needed in library modules, since the umbrella header
+    // effectively acts as a bridging header.
+    return MyBridgedObjcClassInMixedModule()
+  }
+
+}
+```
+
+<Accordion title="Why no bridging header?">
+In library modules (as opposed to app targets), Buck automatically creates an umbrella header that exposes all public Objective-C headers to Swift. This means you don't need to manually maintain a bridging header file.
+
+The umbrella header includes all `.h` files from the module, making them accessible to Swift code through the module's import.
+</Accordion>
+
+## Swift Depending on C++ Libraries
+
+The `SwiftReliesOnCXX` library demonstrates Swift code using a C++ library (Bugsnag).
+
+### BUCK Configuration
+
+```python Libraries/SwiftReliesOnCXX/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "SwiftReliesOnCXX",
+    deps = [
+        "//Pods:Bugsnag",
+    ],
+)
+```
+
+### Swift Code Using C++ Dependency
+
+```swift Libraries/SwiftReliesOnCXX/Sources/MySwiftReliesOnCXXClass.swift
+import Bugsnag
+
+public class MySwiftReliesOnCXXClass {
+  public init() {
+    print("Initialized MySwiftReliesOnCXXClass")
+  }
+
+  public func doSomethingWithCXXLibrary() {
+    Bugsnag.clearBreadcrumbs()
+  }
+}
+```
+
+### The Bugsnag C++ Pod
+
+Bugsnag is defined as a C++ library in `Pods/BUCK`:
+
+```python Pods/BUCK
+apple_cxx_third_party_library(
+    name = "Bugsnag",
+    exported_headers = glob([
+        "Bugsnag/**/BSG_KSCrashReportWriter.h",
+        "Bugsnag/**/Bugsnag.h",
+        "Bugsnag/**/BugsnagBreadcrumb.h",
+        "Bugsnag/**/BugsnagConfiguration.h",
+        "Bugsnag/**/BugsnagCrashReport.h",
+        "Bugsnag/**/BugsnagMetaData.h",
+    ]),
+    headers = glob([
+        "Bugsnag/**/*.h",
+    ]),
+    srcs = glob([
+        "Bugsnag/**/*.c",
+        "Bugsnag/**/*.m",
+        "Bugsnag/**/*.mm",  # Objective-C++
+    ]),
+)
+```
+
+<Note>
+The `.mm` extension indicates Objective-C++ files, which allow C++ code to be used from Objective-C, which can then be bridged to Swift.
+</Note>
+
+## Pure C++ Libraries
+
+The `Cpp1` library demonstrates a pure C++ module:
+
+```python Libraries/Cpp1/BUCK
+load("//Config:buck_rule_macros.bzl", "first_party_library")
+
+first_party_library(
+    name = "Cpp1",
+    has_cpp = True,
+    internal_headers = [
+      "Sources/util.hpp",
+    ]
+)
+```
+
+<Accordion title="What are internal_headers?">
+`internal_headers` are headers that are only visible within the module itself. They're not exported to other modules that depend on this library. This is useful for implementation details that shouldn't be part of the public API.
+</Accordion>
+
+## Language Interop Patterns
+
+<Tabs>
+  <Tab title="Swift → Objective-C">
+### Swift Calling Objective-C
+
+Swift can directly use Objective-C classes in the same module:
+
+```swift
+// No special imports needed - umbrella header handles bridging
+let objcInstance = MyBridgedObjcClassInMixedModule()
+```
+
+**Requirements:**
+- Set `has_objective_c = True` in BUCK file
+- Objective-C headers are automatically included via umbrella header
+</Tab>
+
+<Tab title="Objective-C → Swift">
+### Objective-C Calling Swift
+
+Objective-C can use Swift classes marked with `@objc`:
+
+```objc
+// Import the module's generated Swift header
+#import "ObjcAndSwift-Swift.h"
+
+MySwiftClassInMixedModule *swiftInstance = [[MySwiftClassInMixedModule alloc] init];
+```
+
+**Requirements:**
+- Swift class must inherit from `NSObject` or be marked `@objc`
+- Import the auto-generated `ModuleName-Swift.h` header
+</Tab>
+
+<Tab title="Swift → C++">
+### Swift Using C++ (via Objective-C++)
+
+Swift cannot directly call C++ code. The bridge must go through Objective-C++:
+
+```
+Swift → Objective-C wrapper → Objective-C++ (.mm) → C++
+```
+
+Example:
+```swift
+import Bugsnag  // C++ library with Objective-C wrapper
+
+Bugsnag.clearBreadcrumbs()  // Calls C++ code via Objective-C bridge
+```
+
+**Requirements:**
+- C++ library must provide Objective-C wrapper (`.h` + `.mm`)
+- Use `apple_cxx_third_party_library` or similar C++ rule
+</Tab>
+
+<Tab title="All Three Languages">
+### Combining All Three
+
+You can mix Swift, Objective-C, and C++ in complex dependency graphs:
+
+```python
+first_party_library(
+    name = "ComplexModule",
+    has_objective_c = True,
+    has_cpp = True,
+    deps = [
+        "//Libraries/PureSwiftLib:PureSwiftLib",
+        "//Libraries/PureObjcLib:PureObjcLib",
+        "//Pods:SomeCppPod",
+    ],
+)
+```
+
+**Language interaction flow:**
+```
+Swift files ←→ Objective-C files (.h/.m)
+                       ↕
+                Objective-C++ files (.mm)
+                       ↕
+                   C++ files (.cpp/.hpp)
+```
+</Tab>
+</Tabs>
+
+## Complete Example: App Using All Libraries
+
+The main app demonstrates using libraries across all languages:
+
+```python App/BUCK
+first_party_library_dependencies = [
+    "//Libraries/ASwiftModule:ASwiftModule",           # Pure Swift
+    "//Libraries/Cpp1:Cpp1",                           # Pure C++
+    "//Libraries/Objc1:Objc1",                         # Pure Objective-C
+    "//Libraries/ObjcAndSwift:ObjcAndSwift",           # Mixed Swift/Objective-C
+    "//Libraries/SwiftReliesOnCXX:SwiftReliesOnCXX",   # Swift → C++
+    # ... more libraries
+]
+
+apple_library(
+    name = "ExampleAppLibrary",
+    swift_version = "4.0",
+    srcs = [
+        "ViewController.swift",
+        "AppDelegate.swift",
+    ],
+    deps = first_party_library_dependencies + [
+        "//Pods:CryptoSwift",   # Pure Swift pod
+        "//Pods:PromiseKit",    # Mixed Swift/Objective-C pod
+        "//Pods:Bugsnag",       # C++ pod
+    ],
+)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="When to use has_objective_c">
+  Set `has_objective_c = True` when your library contains:
+  - Any `.m` or `.mm` files
+  - Swift code that needs to call Objective-C code in the same module
+  - Objective-C code that will be called from Swift
+  </Accordion>
+  
+  <Accordion title="When to use has_cpp">
+  Set `has_cpp = True` when your library contains:
+  - Any `.cpp`, `.cc`, or `.hpp` files
+  - C++ code that needs to be compiled
+  - Use `internal_headers` for implementation headers
+  </Accordion>
+  
+  <Accordion title="Bridging headers vs umbrella headers">
+  - **App targets**: May need bridging headers for Swift → Objective-C
+  - **Library modules**: Umbrella headers automatically handle bridging
+  - Buck generates umbrella headers automatically for libraries with `has_objective_c = True`
+  </Accordion>
+  
+  <Accordion title="Mixing languages in pods">
+  When converting CocoaPods:
+  - Pure Swift pods: Use `apple_third_party_lib`
+  - Mixed Swift/Objective-C: Use `apple_third_party_lib` with `exported_headers`
+  - C++ or Objective-C++: Use `apple_cxx_third_party_library`
+  </Accordion>
+</AccordionGroup>
+
+## Language Support Matrix
+
+| From → To | Swift | Objective-C | C++ |
+|-----------|-------|-------------|-----|
+| **Swift** | ✅ Direct | ✅ Via umbrella header | ⚠️ Via Objective-C wrapper |
+| **Objective-C** | ✅ Via -Swift.h | ✅ Direct | ✅ Via .mm files |
+| **C++** | ❌ Not possible | ✅ Via .mm files | ✅ Direct |
+
+<Note>
+Buck handles most of the complexity automatically through the `first_party_library` macro. You just need to set the appropriate `has_*` flags and organize your code properly.
+</Note>

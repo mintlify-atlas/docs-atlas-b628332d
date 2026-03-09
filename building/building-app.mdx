@@ -1,0 +1,250 @@
+---
+title: Building the App
+description: Build BuckSample with Buck CLI commands and Make targets
+---
+
+BuckSample provides multiple ways to build the app, from simple Make commands to direct Buck CLI invocations. This guide covers all build options and configurations.
+
+## Quick Start
+
+The fastest way to build the app:
+
+```bash
+make build
+```
+
+This builds the main `ExampleApp` target using Buck.
+
+## Build Commands
+
+<Steps>
+  <Step title="Build the main app">
+    Build the ExampleApp target for the simulator:
+    
+    ```bash
+    make build
+    ```
+    
+    Under the hood, this runs:
+    ```bash
+    tools/buck build //App:ExampleApp
+    ```
+  </Step>
+
+  <Step title="Build with release configuration">
+    Build with optimizations enabled:
+    
+    ```bash
+    make build_release
+    ```
+    
+    This uses the Release.buckconfig file:
+    ```bash
+    tools/buck build //App:ExampleApp --config-file ./BuildConfigurations/Release.buckconfig
+    ```
+  </Step>
+
+  <Step title="Build extensions">
+    Build the Watch app extension:
+    ```bash
+    make watch
+    ```
+    
+    Build the iMessage extension:
+    ```bash
+    make message
+    ```
+  </Step>
+</Steps>
+
+## Build and Run
+
+To build and install the app on the iOS Simulator:
+
+<CodeGroup>
+```bash Debug Build
+make debug
+```
+
+```bash Release Build
+make debug_release
+```
+</CodeGroup>
+
+The debug command:
+- Builds the app using Buck
+- Installs it on the iPhone 8 simulator
+- Launches the app automatically
+
+<Note>
+The simulator name can be customized in the Makefile. The default is `iPhone 8`.
+</Note>
+
+## Build Configuration
+
+### Release Configuration
+
+The `BuildConfigurations/Release.buckconfig` file defines release-specific settings:
+
+```ini
+[custom]
+  config = release
+  optimization = -Osize
+  config_swift_compiler_flags = -DRELEASE
+```
+
+These settings:
+- Enable size optimizations (`-Osize`)
+- Add the `RELEASE` Swift compiler flag
+- Configure the build for production use
+
+### Buck Binary
+
+BuckSample uses a local Buck binary located at `tools/buck`. This ensures consistent builds across all developers.
+
+<Tip>
+If you need to install or update Buck, run:
+```bash
+make install_buck
+```
+This downloads the specific Buck version used by the project.
+</Tip>
+
+## Build Targets
+
+BuckSample includes multiple build targets defined in `App/BUCK`:
+
+| Target | Description | Command |
+|--------|-------------|----------|
+| `//App:ExampleApp` | Main iOS app bundle | `make build` |
+| `//App:ExampleAppLibrary` | Core app library | `tools/buck build //App:ExampleAppLibrary` |
+| `//App:ExampleAppBinary` | App binary | `tools/buck build //App:ExampleAppBinary` |
+| `//App:ExampleWatchApp` | Watch app | `make watch` |
+| `//App:ExampleMessageExtension` | iMessage extension | `make message` |
+| `//App:ExampleWidgetExtension` | Widget extension | `tools/buck build //App:ExampleWidgetExtension` |
+
+### Listing All Targets
+
+To see all available Buck targets in the project:
+
+```bash
+make targets
+```
+
+Or use Buck directly:
+
+```bash
+tools/buck targets //...
+```
+
+## Build Architecture
+
+### App Structure
+
+The app uses a modular architecture with Buck:
+
+1. **ExampleAppLibrary** (`App/BUCK:58-86`): Contains the main app code (ViewControllers, AppDelegate)
+2. **ExampleAppBinary** (`App/BUCK:88-104`): Links the library into a binary
+3. **ExampleApp** (`App/BUCK:149-168`): Bundles the binary with resources
+
+### Dependencies
+
+The app depends on:
+- **First-party libraries**: Custom Swift/Objective-C modules in `//Libraries`
+- **CocoaPods**: External dependencies like CryptoSwift and PromiseKit
+- **Prebuilt frameworks**: AFNetworking and other precompiled frameworks
+- **Resources**: Asset catalogs, storyboards, and localized strings
+
+<Warning>
+When adding new dependencies, make sure to update the appropriate dependency list in `App/BUCK`.
+</Warning>
+
+## Build Extensions
+
+### Watch App
+
+The Watch app consists of two parts:
+- **ExampleWatchApp**: The watch application itself
+- **ExampleWatchAppExtension**: The code that runs on iPhone
+
+Build target:
+```bash
+tools/buck build //App:ExampleWatchAppExtension#watchsimulator-i386
+```
+
+<Note>
+Watch apps must be defined in the same BUCK file as the main app due to Xcode's requirements for embedding watch apps.
+</Note>
+
+### iMessage Extension
+
+The message extension enables iMessage integration:
+
+```bash
+tools/buck build //App:ExampleMessageExtension
+```
+
+The extension uses special linker flags to:
+- Set the entry point to `_NSExtensionMain`
+- Configure the rpath to find frameworks in the main app bundle
+
+### Widget Extension
+
+Build the widget extension:
+
+```bash
+tools/buck build //App:ExampleWidgetExtension
+```
+
+## Build Output
+
+Buck stores all build artifacts in the `buck-out/` directory at the repository root. The directory structure:
+
+```
+buck-out/
+├── gen/          # Generated files and final outputs
+├── bin/          # Compiled binaries
+└── tmp/          # Temporary build artifacts
+```
+
+<Tip>
+To clean all build artifacts:
+```bash
+make clean
+```
+This removes generated Xcode projects and Buck build outputs.
+</Tip>
+
+## Troubleshooting
+
+### Build Failures
+
+If the build fails:
+
+1. **Clean the build**: `make clean && make build`
+2. **Update CocoaPods**: `make update_cocoapods`
+3. **Reinstall Buck**: `make install_buck`
+4. **Check Buck version**: `tools/buck --version`
+
+### Common Issues
+
+**Problem**: "Buck command not found"
+- **Solution**: Run `make install_buck` to download the Buck binary
+
+**Problem**: Build fails with missing dependencies
+- **Solution**: Ensure CocoaPods are installed: `pod install`
+
+**Problem**: Simulator not found
+- **Solution**: Update the `TARGET_SIMULATOR` variable in the Makefile to match an available simulator
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Running Tests" icon="flask" href="/building/testing">
+    Learn how to run unit tests and UI tests with Buck
+  </Card>
+  
+  <Card title="Xcode Integration" icon="code" href="/building/xcode-project">
+    Generate Xcode projects from Buck for IDE development
+  </Card>
+</CardGroup>

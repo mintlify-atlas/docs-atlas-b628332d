@@ -1,0 +1,785 @@
+---
+title: BUCK File Macros
+description: Complete reference for custom Buck macros and rules defined in Config/*.bzl files
+---
+
+BuckSample extends Buck with custom macros that simplify target definitions and enforce project conventions. These are defined in `Config/buck_rule_macros.bzl`, `Config/buck_local.bzl`, and `Config/configs.bzl`.
+
+## Library Macros
+
+### apple_lib
+
+Defines an Apple library target with project-specific defaults.
+
+```python
+apple_lib(
+    name,
+    visibility = ["PUBLIC"],
+    swift_version = "5",
+    modular = True,
+    compiler_flags = None,
+    swift_compiler_flags = None,
+    warning_as_error = True,
+    suppress_warnings = False,
+    **kwargs
+)
+```
+
+<ParamField path="name" type="string" required>
+The name of the library target.
+</ParamField>
+
+<ParamField path="visibility" type="list" default='["PUBLIC"]'>
+Visibility specification for the target.
+</ParamField>
+
+<ParamField path="swift_version" type="string" default="5">
+Swift language version to use.
+</ParamField>
+
+<ParamField path="modular" type="bool" default="true">
+Whether to generate module maps.
+</ParamField>
+
+<ParamField path="compiler_flags" type="list">
+Additional C/Objective-C compiler flags.
+</ParamField>
+
+<ParamField path="swift_compiler_flags" type="list">
+Additional Swift compiler flags.
+</ParamField>
+
+<ParamField path="warning_as_error" type="bool" default="true">
+Treat warnings as errors. Adds `-Werror` and `-warnings-as-errors` flags. Automatically disabled for beta Xcode versions.
+</ParamField>
+
+<ParamField path="suppress_warnings" type="bool" default="false">
+Suppress all warnings. Adds `-w` and `-suppress-warnings` flags.
+</ParamField>
+
+**Behavior:**
+- Applies `library_configs()` for build settings
+- Automatically disables `warning_as_error` when using Xcode beta
+- Merges custom flags with project defaults
+
+**Source:** `Config/buck_rule_macros.bzl:101`
+
+---
+
+### apple_third_party_lib
+
+Wrapper for third-party libraries with warnings disabled.
+
+```python
+apple_third_party_lib(**kwargs)
+```
+
+**Behavior:**
+- Calls `apple_lib` with `warning_as_error=False` and `suppress_warnings=True`
+- Use for CocoaPods or vendor libraries that have warnings
+
+**Source:** `Config/buck_rule_macros.bzl:5`
+
+---
+
+### apple_cxx_lib
+
+Defines an Apple library with C++ support.
+
+```python
+apple_cxx_lib(
+    srcs = [],
+    additional_exported_linker_flags = [],
+    **kwargs
+)
+```
+
+<ParamField path="srcs" type="list">
+Source files. Files with `.mm`, `.cpp`, `.S` extensions are compiled with C++ flags.
+</ParamField>
+
+<ParamField path="additional_exported_linker_flags" type="list">
+Extra linker flags beyond the defaults (`-lc++`, `-lz`).
+</ParamField>
+
+**Behavior:**
+- Automatically separates C++ sources (`.mm`, `.cpp`, `.S`) from C/Swift sources
+- Applies C++ compilation flags from `.buckconfig`
+- Adds `-w` to suppress warnings in C++ code
+- Exports `-lc++` and `-lz` linker flags
+
+**Source:** `Config/buck_rule_macros.bzl:222`
+
+---
+
+### apple_cxx_third_party_library
+
+Wrapper for third-party C++ libraries.
+
+```python
+apple_cxx_third_party_library(**kwargs)
+```
+
+**Behavior:**
+- Calls `apple_cxx_lib` with `warning_as_error=False` and `suppress_warnings=True`
+
+**Source:** `Config/buck_rule_macros.bzl:245`
+
+---
+
+### first_party_library
+
+Comprehensive macro for first-party libraries with standardized structure.
+
+```python
+first_party_library(
+    name,
+    has_objective_c = False,
+    has_cpp = False,
+    internal_headers = None,
+    extra_xcode_files = [],
+    mlmodel_generated_source = [],
+    deps = [],
+    frameworks = [],
+    info_plist = None,
+    info_plist_substitutions = {},
+    test_host_app = None,
+    run_test_separately = False,
+    test_frameworks = [],
+    test_deps = [],
+    modular = True,
+    compiler_flags = None,
+    swift_compiler_flags = None,
+    warning_as_error = True,
+    suppress_warnings = False,
+    **kwargs
+)
+```
+
+<ParamField path="name" type="string" required>
+Library name. Creates three targets: `name`, `nameTests`, `nameTests-For-CI`.
+</ParamField>
+
+<ParamField path="has_objective_c" type="bool" default="false">
+Includes `Sources/**/*.m` and `Sources/**/*.h` files.
+</ParamField>
+
+<ParamField path="has_cpp" type="bool" default="false">
+Includes C++ sources (`.cpp`, `.mm`, `.hpp`) and uses `apple_cxx_lib`.
+</ParamField>
+
+<ParamField path="internal_headers" type="list">
+Objective-C headers included in library but not exported.
+</ParamField>
+
+<ParamField path="extra_xcode_files" type="list">
+Additional files to show in Xcode (e.g., README, scripts).
+</ParamField>
+
+<ParamField path="mlmodel_generated_source" type="list">
+Generated Swift interfaces from CoreML models.
+</ParamField>
+
+<ParamField path="test_host_app" type="string">
+Host application for unit tests (required for application tests).
+</ParamField>
+
+<ParamField path="test_frameworks" type="list">
+Additional frameworks for test target.
+</ParamField>
+
+<ParamField path="test_deps" type="list">
+Additional dependencies for test target.
+</ParamField>
+
+**File Structure Convention:**
+```
+MyLibrary/
+  Sources/          # Library source code
+    *.swift
+    *.m, *.h        # If has_objective_c=True
+    *.cpp, *.mm     # If has_cpp=True
+  Tests/            # Test code
+    *.swift
+    *.m, *.h        # If has_objective_c=True
+  BUCK
+```
+
+**Generated Targets:**
+
+<Tabs>
+  <Tab title="Library Target">
+  **Target:** `//MyLibrary:MyLibrary`
+  
+  - Includes all sources from `Sources/`
+  - Visible in Xcode projects
+  - Used by production code
+  </Tab>
+  
+  <Tab title="Test Target">
+  **Target:** `//MyLibrary:MyLibraryTests`
+  
+  - Includes all sources from `Tests/`
+  - Runnable from Buck CLI and Xcode
+  - Depends on library target
+  </Tab>
+  
+  <Tab title="CI Library Target">
+  **Target:** `//MyLibrary:MyLibraryTests-For-CI`
+  
+  - Library (not test bundle) containing test code
+  - Used by `apple_test_all` for faster CI builds
+  - Not visible in Xcode
+  </Tab>
+</Tabs>
+
+**Source:** `Config/buck_rule_macros.bzl:148`
+
+## Test Macros
+
+### apple_test_lib
+
+Defines test targets with CI optimization.
+
+```python
+apple_test_lib(
+    name,
+    visibility = ["PUBLIC"],
+    bundle_for_ci = True,
+    info_plist = None,
+    info_plist_substitutions = {},
+    test_host_app = None,
+    run_test_separately = False,
+    is_ui_test = False,
+    ui_test_target_app = None,
+    frameworks = [],
+    labels = [],
+    destination_specifier = None,
+    **kwargs
+)
+```
+
+<ParamField path="name" type="string" required>
+Test target name.
+</ParamField>
+
+<ParamField path="bundle_for_ci" type="bool" default="true">
+Create library target for CI optimization. Set to `false` for the final CI test bundle.
+</ParamField>
+
+<ParamField path="is_ui_test" type="bool" default="false">
+Whether this is a UI test target.
+</ParamField>
+
+<ParamField path="ui_test_target_app" type="string">
+Target app bundle for UI tests.
+</ParamField>
+
+<ParamField path="test_host_app" type="string">
+Host application for unit tests.
+</ParamField>
+
+<ParamField path="run_test_separately" type="bool" default="false">
+Run this test in its own process.
+</ParamField>
+
+<ParamField path="destination_specifier" type="dict">
+Simulator destination override.
+</ParamField>
+
+<ParamField path="labels" type="list">
+Labels for organizing tests.
+</ParamField>
+
+**Generated Targets:**
+- `name`: apple_test bundle (runnable)
+- `name-For-CI`: apple_library with test code (if `bundle_for_ci=True`)
+
+**Default Info.plist:** Uses `//Config:test_info_plist` if not specified.
+
+**Source:** `Config/buck_rule_macros.bzl:23`
+
+---
+
+### apple_test_all
+
+Bundles multiple test libraries into a single test target for faster CI.
+
+```python
+apple_test_all(
+    libraries = [],
+    additional_tests = [],
+    prebuilt_frameworks = [],
+    **kwargs
+)
+```
+
+<ParamField path="libraries" type="list" required>
+List of library names (without `Tests` suffix). Automatically depends on `{name}Tests-For-CI` targets.
+</ParamField>
+
+<ParamField path="additional_tests" type="list">
+Extra apple_test targets to include.
+</ParamField>
+
+<ParamField path="prebuilt_frameworks" type="list">
+Prebuilt frameworks to include (workaround for Buck bug with transitive frameworks).
+</ParamField>
+
+**Example:**
+```python
+apple_test_all(
+    name = "AllCITests",
+    libraries = [
+        "Networking",
+        "Analytics",
+        "UI",
+    ],
+    additional_tests = ["//App:IntegrationTests"],
+)
+```
+
+This creates a single test bundle containing all tests from NetworkingTests, AnalyticsTests, and UITests, plus IntegrationTests.
+
+**Source:** `Config/buck_rule_macros.bzl:86`
+
+## Resource & Code Generation
+
+### mlmodel_resource
+
+Generates Swift interface and compiled CoreML model.
+
+```python
+mlmodel_resource(
+    resource_source_name,
+    resource_dependency_name,
+    model_directory,
+    model_name,
+    swift_version = "5"
+)
+```
+
+<ParamField path="resource_source_name" type="string" required>
+Name for the generated Swift interface target. Include in library `srcs` via `mlmodel_generated_source`.
+</ParamField>
+
+<ParamField path="resource_dependency_name" type="string" required>
+Name for the compiled .mlmodelc resource. Include in library `deps`.
+</ParamField>
+
+<ParamField path="model_directory" type="string" required>
+Path to directory containing .mlmodel file. Must include trailing slash.
+</ParamField>
+
+<ParamField path="model_name" type="string" required>
+Name of .mlmodel file without extension.
+</ParamField>
+
+<ParamField path="swift_version" type="string" default="5">
+Swift version for generated interface.
+</ParamField>
+
+**Generated Targets:**
+- `resource_source_name`: Swift interface (.swift)
+- `resource_dependency_name_compiled_model`: Compiled model (.mlmodelc)
+- `resource_dependency_name`: Resource bundle containing compiled model
+
+**Example:**
+```python
+mlmodel_resource(
+    resource_source_name = "ObjectDetector-Source",
+    resource_dependency_name = "ObjectDetector-Resource",
+    model_directory = "Models/",
+    model_name = "ObjectDetector",
+)
+
+apple_lib(
+    name = "MLKit",
+    srcs = glob(["Sources/**/*.swift"]) + [":ObjectDetector-Source"],
+    deps = [":ObjectDetector-Resource"],
+)
+```
+
+**Source:** `Config/buck_rule_macros.bzl:269`
+
+---
+
+### logging_genrule
+
+Genrule wrapper that logs command execution.
+
+```python
+logging_genrule(
+    name,
+    bash,
+    **kwargs
+)
+```
+
+**Behavior:** Prefixes bash command with `set -x;` to enable verbose logging.
+
+**Source:** `Config/buck_rule_macros.bzl:253`
+
+## BuckLocal Macros
+
+BuckLocal enables hybrid Buck/Xcode development. These macros create dual targets for both modes.
+
+### buck_local_binary
+
+Creates binary targets for both native Xcode and BuckLocal modes.
+
+```python
+buck_local_binary(
+    name,
+    native_xcode_deps = [],
+    buck_local_deps = [],
+    native_xcode_extra_files = [],
+    buck_local_extra_files = [],
+    tests = [],
+    **kwargs
+)
+```
+
+<ParamField path="name" type="string" required>
+Binary name. Creates two targets: `name` and `nameBuckLocal`.
+</ParamField>
+
+<ParamField path="native_xcode_deps" type="list">
+Dependencies for native Xcode target.
+</ParamField>
+
+<ParamField path="buck_local_deps" type="list">
+Dependencies for BuckLocal target.
+</ParamField>
+
+<ParamField path="native_xcode_extra_files" type="list">
+Extra files for Xcode target.
+</ParamField>
+
+<ParamField path="buck_local_extra_files" type="list">
+Extra files for BuckLocal target.
+</ParamField>
+
+<ParamField path="tests" type="list">
+Test targets (only applied to native Xcode binary).
+</ParamField>
+
+**BuckLocal binary behavior:**
+- Uses `-exported_symbols_list /dev/null` to avoid symbol conflicts
+- Has no test targets
+
+**Source:** `Config/buck_local.bzl:1`
+
+---
+
+### buck_local_bundle
+
+Creates bundle targets for both modes.
+
+```python
+buck_local_bundle(
+    name,
+    binary,
+    native_xcode_deps = [],
+    buck_local_deps = [],
+    **kwargs
+)
+```
+
+<ParamField path="name" type="string" required>
+Bundle name. Creates `name` and `nameBuckLocal`.
+</ParamField>
+
+<ParamField path="binary" type="string" required>
+Binary target name (without colon). Automatically appends `BuckLocal` suffix for BuckLocal bundle.
+</ParamField>
+
+<ParamField path="native_xcode_deps" type="list">
+Resource dependencies for native Xcode bundle.
+</ParamField>
+
+<ParamField path="buck_local_deps" type="list">
+Resource dependencies for BuckLocal bundle.
+</ParamField>
+
+**Source:** `Config/buck_local.bzl:26`
+
+---
+
+### buck_local_workspace
+
+Creates workspace configurations for both modes.
+
+```python
+buck_local_workspace(
+    name,
+    workspace_name,
+    src_target,
+    ui_test_target,
+    native_xcode_scheme_actions = {},
+    buck_local_scheme_actions = {},
+    native_xcode_extra_schemes = {},
+    **kwargs
+)
+```
+
+<ParamField path="name" type="string" required>
+Workspace config name. Creates `name` and `name-buck-local`.
+</ParamField>
+
+<ParamField path="workspace_name" type="string" required>
+Xcode workspace name (without extension). BuckLocal adds `BuckLocal` suffix.
+</ParamField>
+
+<ParamField path="src_target" type="string" required>
+Main source target. BuckLocal automatically appends `BuckLocal` suffix.
+</ParamField>
+
+<ParamField path="ui_test_target" type="string" required>
+UI test target (placed in extra_tests).
+</ParamField>
+
+<ParamField path="native_xcode_scheme_actions" type="dict">
+Scheme actions for native Xcode workspace.
+</ParamField>
+
+<ParamField path="buck_local_scheme_actions" type="dict">
+Scheme actions for BuckLocal workspace.
+</ParamField>
+
+<ParamField path="native_xcode_extra_schemes" type="dict">
+Additional schemes for native Xcode workspace.
+</ParamField>
+
+**Source:** `Config/buck_local.bzl:46`
+
+---
+
+### buck_local_apple_resource
+
+Resource target with BuckLocal visibility.
+
+```python
+buck_local_apple_resource(
+    visibility = [],
+    **kwargs
+)
+```
+
+**Behavior:** Adds `//BuckLocal:` to visibility list.
+
+**Source:** `Config/buck_local.bzl:76`
+
+---
+
+### buck_local_apple_asset_catalog
+
+Asset catalog with BuckLocal visibility.
+
+```python
+buck_local_apple_asset_catalog(
+    visibility = [],
+    **kwargs
+)
+```
+
+**Behavior:** Adds `//BuckLocal:` to visibility list.
+
+**Source:** `Config/buck_local.bzl:84`
+
+## Configuration Helpers
+
+Defined in `Config/configs.bzl` and `Config/utils.bzl`.
+
+### library_configs
+
+Returns build configurations for library targets.
+
+```python
+library_configs() -> dict
+```
+
+**Returns:**
+```python
+{
+    "Debug": {...},
+    "Profile": {...},
+    "Release": {...},
+}
+```
+
+**Settings include:**
+- `IPHONEOS_DEPLOYMENT_TARGET`: 14.0
+- `SWIFT_WHOLE_MODULE_OPTIMIZATION`: YES
+- `SKIP_INSTALL`: YES (prevents generic archive issues)
+
+**Source:** `Config/configs.bzl:48`
+
+---
+
+### app_binary_configs
+
+Returns build configurations for app binaries.
+
+```python
+app_binary_configs(name: str) -> dict
+```
+
+**Includes:**
+- All library configs
+- `ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES`: YES
+- `PRODUCT_BUNDLE_IDENTIFIER`: com.airbnb.{name}
+- `-all_load` linker flag (workaround for Swift bug SR-6004)
+
+**Source:** `Config/configs.bzl:66`
+
+---
+
+### test_configs
+
+Returns build configurations for test targets.
+
+```python
+test_configs(name: str) -> dict
+```
+
+**Source:** `Config/configs.bzl:77`
+
+---
+
+### watch_binary_configs
+
+Returns configurations for watchOS binaries.
+
+```python
+watch_binary_configs(name: str) -> dict
+```
+
+**Settings:**
+- `SDKROOT`: watchos
+- `WATCHOS_DEPLOYMENT_TARGET`: 4.0
+- `WK_COMPANION_APP_BUNDLE_IDENTIFIER`: com.airbnb.ExampleApp
+- `SWIFT_COMPILATION_MODE`: wholemodule
+
+**Source:** `Config/configs.bzl:112`
+
+---
+
+### message_binary_configs
+
+Returns configurations for message extension binaries.
+
+```python
+message_binary_configs(name: str) -> dict
+```
+
+**Source:** `Config/configs.bzl:127`
+
+---
+
+### config_with_updated_linker_flags
+
+Adds linker flags to a config dictionary.
+
+```python
+config_with_updated_linker_flags(
+    config: dict,
+    other_linker_flags: str,
+    config_key: str = "OTHER_LDFLAGS"
+) -> dict
+```
+
+**Behavior:**
+- Appends flags if `OTHER_LDFLAGS` exists
+- Creates `OTHER_LDFLAGS` with `$(inherited)` prefix if missing
+
+**Source:** `Config/utils.bzl:60`
+
+---
+
+### configs_with_config
+
+Creates a configs dictionary from a single config.
+
+```python
+configs_with_config(config: dict) -> dict
+```
+
+**Returns:**
+```python
+{
+    "Debug": config,
+    "Profile": config,
+    "Release": config,
+}
+```
+
+**Source:** `Config/utils.bzl:33`
+
+## Helper Functions
+
+### test_name
+
+Generates test target name.
+
+```python
+test_name(name: str) -> str
+```
+
+**Example:** `test_name("MyLib")` → `"MyLibTests"`
+
+**Source:** `Config/buck_rule_macros.bzl:12`
+
+---
+
+### ci_test_name
+
+Generates CI library name for test code.
+
+```python
+ci_test_name(name: str) -> str
+```
+
+**Example:** `ci_test_name("MyLib")` → `"MyLib-For-CI"`
+
+**Source:** `Config/buck_rule_macros.bzl:14`
+
+---
+
+### bundle_identifier
+
+Generates bundle identifier.
+
+```python
+bundle_identifier(name: str) -> str
+```
+
+**Example:** `bundle_identifier("MyApp")` → `"com.airbnb.MyApp"`
+
+**Source:** `Config/configs.bzl:45`
+
+## Constants
+
+<ParamField path="DEFAULT_SWIFT_VERSION" type="string" default="5">
+Default Swift version for all targets.
+
+**Source:** `Config/buck_rule_macros.bzl:17`
+</ParamField>
+
+<ParamField path="DEVELOPMENT_LANGUAGE" type="string" default="en">
+Development language for Info.plist.
+
+**Source:** `Config/configs.bzl:3`
+</ParamField>
+
+<ParamField path="ALL_LOAD_LINKER_FLAG" type="string" default="-all_load">
+Linker flag for binaries. Workaround for Swift bug [SR-6004](https://bugs.swift.org/browse/SR-6004).
+
+**Source:** `Config/configs.bzl:43`
+</ParamField>
+
+<ParamField path="CXX_SRC_EXT" type="list" default='["mm", "cpp", "S"]'>
+File extensions treated as C++ sources.
+
+**Source:** `Config/buck_rule_macros.bzl:221`
+</ParamField>

@@ -1,0 +1,422 @@
+---
+title: 'Continuous Integration'
+description: 'Set up continuous integration with CircleCI for automated builds and tests'
+icon: 'circle-nodes'
+---
+
+## Overview
+
+BuckSample includes a complete CircleCI configuration that automates building, testing, and validation of your Buck-based iOS project. The CI pipeline ensures code quality and catches issues before they reach production.
+
+## CircleCI Configuration
+
+The project uses CircleCI 2.0 with macOS executors to run iOS builds and tests.
+
+### Configuration File
+
+The `.circleci/config.yml` file defines the CI workflow:
+
+```yaml .circleci/config.yml
+version: 2
+jobs:
+  build-and-test:
+    macos:
+      xcode: "12.2.0"
+    environment:
+      TERM: dumb
+    steps:
+      - checkout
+      - run:
+          name: Prepare environment
+          command: |
+            gem install bundler:1.17.3
+            bundle install
+            java -version
+
+      - run:
+          name: Build and run tests
+          command: make ci
+
+workflows:
+  version: 2
+  build-and-test:
+    jobs:
+      - build-and-test
+```
+
+<Note>
+The configuration uses Xcode 12.2.0 on macOS executors. Update the `xcode` version to match your project's requirements.
+</Note>
+
+## CI Workflow Steps
+
+The CircleCI workflow executes the following steps:
+
+<Steps>
+
+<Step title="Checkout Code">
+
+CircleCI checks out your repository code:
+
+```yaml
+- checkout
+```
+
+This automatically clones your repository at the commit being tested.
+
+</Step>
+
+<Step title="Prepare Environment">
+
+Installs required dependencies:
+
+```yaml
+- run:
+    name: Prepare environment
+    command: |
+      gem install bundler:1.17.3
+      bundle install
+      java -version
+```
+
+**This step:**
+- Installs Bundler 1.17.3 for Ruby dependency management
+- Runs `bundle install` to install Ruby gems (including RSpec for tests)
+- Verifies Java installation (required for Buck)
+
+</Step>
+
+<Step title="Build and Test">
+
+Runs the comprehensive CI command:
+
+```yaml
+- run:
+    name: Build and run tests
+    command: make ci
+```
+
+This executes the `make ci` target, which runs all validation checks.
+
+</Step>
+
+</Steps>
+
+## The CI Make Target
+
+The `make ci` command orchestrates the entire CI pipeline:
+
+```makefile Makefile
+ci: install_buck install_ruby_gems targets build test ui_test ruby_test project xcode_tests watch message
+	echo "Done"
+```
+
+This single command runs all critical tasks:
+
+<Steps>
+
+<Step title="install_buck">
+
+Downloads and installs Buck if not already present:
+
+```makefile
+install_buck:
+	curl https://jitpack.io/com/github/airbnb/buck/f2865fec86dbe982ce1f237494f10b65bce3d270/buck-f2865fec86dbe982ce1f237494f10b65bce3d270-java11.pex --output tools/buck
+	chmod u+x tools/buck
+```
+
+</Step>
+
+<Step title="install_ruby_gems">
+
+Installs Ruby dependencies:
+
+```makefile
+install_ruby_gems:
+	bundle install --path vendor/bundle
+```
+
+</Step>
+
+<Step title="targets">
+
+Lists all Buck targets to verify build files are valid:
+
+```makefile
+targets:
+	$(BUCK) targets //...
+```
+
+</Step>
+
+<Step title="build">
+
+Builds the main app target:
+
+```makefile
+build:
+	$(BUCK) build //App:ExampleApp
+```
+
+</Step>
+
+<Step title="test">
+
+Runs unit tests with code coverage:
+
+```makefile
+test:
+	@rm -f $(buck_out)/tmp/*.profraw
+	@rm -f $(buck_out)/gen/*.profdata
+	$(BUCK) test //App:ExampleAppCITests --test-runner-env XCTOOL_TEST_ENV_LLVM_PROFILE_FILE="$(buck_out)/tmp/code-%p.profraw%15x" \
+		--config-file code_coverage.buckconfig
+	xcrun llvm-profdata merge -sparse "$(buck_out)/tmp/code-"*.profraw -o "$(buck_out)/gen/Coverage.profdata"
+	xcrun llvm-cov report "$(TEST_BUNDLE)/ExampleAppCITests" -instr-profile "$(buck_out)/gen/Coverage.profdata" -ignore-filename-regex "Pods|Carthage|buck-out"
+```
+
+See [Code Coverage](/advanced/code-coverage) for details.
+
+</Step>
+
+<Step title="ui_test">
+
+Runs UI tests using XCUITest:
+
+```makefile
+ui_test:
+	$(BUCK) build //App:XCUITests
+	rm -rf ${UI_TESTS_TMP}
+	mkdir -p ${UI_TESTS_TMP}
+	ln -sf $(buck_out)/gen/App/XCUITests#apple-test-bundle,dwarf,no-include-frameworks,no-linkermap/XCUITests.xctest $(UI_TESTS_TMP)
+	cp $(UI_TESTS_TOOLS)/ExampleApp.xctestrun $(UI_TESTS_TMP)
+	unzip $(UI_TESTS_TOOLS)/XCUITests-Runner.app.zip -d $(UI_TESTS_TMP)
+	xcrun simctl boot $(TARGET_SIMULATOR) || true
+	xcrun simctl install $(TARGET_SIMULATOR) $(UI_TESTS_TMP)/XCUITests.xctest/PlugIns/ExampleApp.app
+	xcodebuild test-without-building -xctestrun $(UI_TESTS_TMP)/ExampleApp.xctestrun -destination 'platform=iOS Simulator,name=$(shell echo $(TARGET_SIMULATOR)),OS=latest'
+```
+
+</Step>
+
+<Step title="ruby_test">
+
+Runs RSpec tests for Ruby scripts:
+
+```makefile
+ruby_test:
+	buck_binary_path=tools/buck bundle exec rspec BuckLocal/ruby_scripts/ -I BuckLocal/ruby_scripts/
+```
+
+</Step>
+
+<Step title="project">
+
+Generates an Xcode workspace and runs tests within Xcode:
+
+```makefile
+project: clean
+	$(BUCK) project //App:workspace
+	open App/ExampleApp-BUCK.xcworkspace
+
+xcode_tests: project
+	xcodebuild build test -workspace App/ExampleApp-BUCK.xcworkspace -scheme ExampleApp -destination 'platform=iOS Simulator,name=iPhone 8,OS=latest' | xcpretty && exit ${PIPESTATUS[0]}
+```
+
+</Step>
+
+<Step title="watch and message">
+
+Builds additional app extensions:
+
+```makefile
+watch:
+	$(BUCK) build //App:ExampleWatchAppExtension#watchsimulator-i386
+
+message:
+	$(BUCK) build //App:ExampleMessageExtension
+```
+
+</Step>
+
+</Steps>
+
+<Warning>
+The `make ci` command is comprehensive and may take several minutes to complete. It's designed to catch all possible issues before merging code.
+</Warning>
+
+## Running CI Locally
+
+You can run the exact same CI pipeline locally before pushing:
+
+```bash
+make ci
+```
+
+This helps catch issues early and reduces CI failures.
+
+### Running Individual CI Steps
+
+You can also run individual steps:
+
+<CodeGroup>
+
+```bash Install Buck
+make install_buck
+```
+
+```bash Build Only
+make build
+```
+
+```bash Run Tests
+make test
+```
+
+```bash UI Tests
+make ui_test
+```
+
+```bash Xcode Tests
+make xcode_tests
+```
+
+</CodeGroup>
+
+## Setting Up CircleCI
+
+<Steps>
+
+<Step title="Connect Repository">
+
+1. Go to [CircleCI](https://circleci.com/)
+2. Sign up or log in with your GitHub/Bitbucket account
+3. Add your project from the dashboard
+
+</Step>
+
+<Step title="Configure Environment">
+
+CircleCI will automatically detect the `.circleci/config.yml` file. No additional configuration is needed unless you want to:
+
+- Add environment variables (Settings → Environment Variables)
+- Configure SSH keys for private dependencies
+- Set up deployment keys
+
+</Step>
+
+<Step title="Trigger First Build">
+
+Push a commit or manually trigger a build from the CircleCI dashboard. The pipeline will:
+
+1. Provision a macOS executor with Xcode
+2. Install dependencies
+3. Run all build and test steps
+4. Report results
+
+</Step>
+
+</Steps>
+
+## Status Badges
+
+Add a CircleCI status badge to your README:
+
+```markdown
+[![CircleCI](https://circleci.com/gh/USERNAME/REPO.svg?style=svg)](https://circleci.com/gh/USERNAME/REPO)
+```
+
+Replace `USERNAME` and `REPO` with your GitHub username and repository name.
+
+### Badge Styles
+
+CircleCI offers different badge styles:
+
+<CodeGroup>
+
+```markdown Shield Style
+[![CircleCI](https://circleci.com/gh/USERNAME/REPO.svg?style=shield)](https://circleci.com/gh/USERNAME/REPO)
+```
+
+```markdown SVG Style
+[![CircleCI](https://circleci.com/gh/USERNAME/REPO.svg?style=svg)](https://circleci.com/gh/USERNAME/REPO)
+```
+
+</CodeGroup>
+
+## Optimization Tips
+
+<Steps>
+
+<Step title="Cache Dependencies">
+
+Add caching to speed up builds:
+
+```yaml
+- restore_cache:
+    keys:
+      - buck-{{ checksum ".buckconfig" }}
+      - buck-
+
+- save_cache:
+    key: buck-{{ checksum ".buckconfig" }}
+    paths:
+      - ~/buck-cache
+```
+
+</Step>
+
+<Step title="Parallelize Tests">
+
+Split tests across multiple containers:
+
+```yaml
+jobs:
+  build-and-test:
+    parallelism: 4
+    # ... rest of config
+```
+
+</Step>
+
+<Step title="Use Buck's HTTP Cache">
+
+Configure Buck to use a shared HTTP cache for faster builds across CI runs. See Buck documentation for setup details.
+
+</Step>
+
+</Steps>
+
+## Troubleshooting
+
+### Build Fails on CI but Works Locally
+
+1. Check the Xcode version matches between CI and local
+2. Verify all dependencies are committed (or properly fetched)
+3. Ensure Buck version is consistent
+
+### Tests Timeout
+
+1. Increase the timeout in CircleCI config:
+   ```yaml
+   - run:
+       name: Build and run tests
+       command: make ci
+       no_output_timeout: 30m
+   ```
+2. Consider splitting the `make ci` target into separate jobs
+
+### Out of Memory Errors
+
+1. Use a larger resource class:
+   ```yaml
+   macos:
+     xcode: "12.2.0"
+   resource_class: large
+   ```
+2. Reduce parallelism in Buck config
+
+## Next Steps
+
+- Set up [code coverage](/advanced/code-coverage) reports
+- Configure deployment pipelines
+- Add notifications for build failures
+- Integrate with GitHub Checks for PR status
